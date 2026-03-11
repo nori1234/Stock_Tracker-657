@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>カスタム株価監視</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+```
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Kaku Gothic ProN", sans-serif;
+        background: #f5f5f5;
+        min-height: 100vh;
+        padding-bottom: 2rem;
+    }
+
+    .header {
+        background: #bf0000;
+        color: #fff;
+        padding: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+
+    .header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+    }
+
+    .header h1 {
+        font-size: 1.25rem;
+        font-weight: 700;
+    }
+
+    .header-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .header-btn {
+        background: rgba(255,255,255,0.2);
+        border: none;
+        color: #fff;
+        padding: 0.5rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1.25rem;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .header-btn:active {
+        background: rgba(255,255,255,0.3);
+    }
+
+    .add-stock-btn {
+        background: rgba(255,255,255,0.2);
+        border: none;
+        color: #fff;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .add-stock-btn:active {
+        background: rgba(255,255,255,0.3);
+    }
+
+    .last-update {
+        font-size: 0.75rem;
+        opacity: 0.9;
+    }
+
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 200;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .modal.show {
+        display: flex;
+    }
+
+    .modal-content {
+        background: #fff;
+        border-radius: 16px;
+        padding: 2rem;
+        max-width: 500px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #333;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-label {
+        display: block;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #555;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 0.75rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: border-color 0.2s;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #bf0000;
+    }
+
+    .form-help {
+        font-size: 0.8rem;
+        color: #999;
+        margin-top: 0.25rem;
+    }
+
+    .preset-buttons {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .preset-btn {
+        padding: 0.5rem;
+        background: #f5f5f5;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #555;
+    }
+
+    .preset-btn:active {
+        background: #e0e0e0;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 1rem;
+        margin-top: 2rem;
+    }
+
+    .btn {
+        flex: 1;
+        padding: 0.75rem;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .btn-primary {
+        background: #bf0000;
+        color: #fff;
+    }
+
+    .btn-secondary {
+        background: #e0e0e0;
+        color: #555;
+    }
+
+    .btn-full {
+        width: 100%;
+        padding: 1rem;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 1rem;
+    }
+
+    .btn-success {
+        background: #22c55e;
+        color: #fff;
+    }
+
+    .btn-info {
+        background: #3b82f6;
+        color: #fff;
+    }
+
+    .stocks-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 1rem;
+    }
+
+    .stock-card {
+        background: #fff;
+        padding: 1rem;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        position: relative;
+    }
+
+    .stock-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+
+    .stock-name {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #333;
+    }
+
+    .stock-symbol {
+        font-size: 0.75rem;
+        color: #999;
+        margin-top: 0.25rem;
+    }
+
+    .delete-btn {
+        background: #ff6b6b;
+        border: none;
+        color: #fff;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .stock-price {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #333;
+        margin-bottom: 0.5rem;
+    }
+
+    .stock-change {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .change-value {
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .change-percent {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .positive {
+        color: #00a000;
+    }
+
+    .negative {
+        color: #e60000;
+    }
+
+    .positive-bg {
+        background: #e8f5e9;
+        color: #00a000;
+    }
+
+    .negative-bg {
+        background: #ffebee;
+        color: #e60000;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: #999;
+    }
+
+    .empty-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+    }
+
+    .empty-text {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #666;
+        margin-bottom: 0.5rem;
+    }
+
+    .empty-subtext {
+        font-size: 0.9rem;
+        color: #999;
+    }
+
+    .refresh-all-btn {
+        position: fixed;
+        bottom: 2rem;
+        right: 1rem;
+        width: 56px;
+        height: 56px;
+        background: #bf0000;
+        border: none;
+        border-radius: 50%;
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(191, 0, 0, 0.3);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .notice {
+        margin: 1rem;
+        padding: 1rem;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        color: #856404;
+        line-height: 1.6;
+    }
+
+    .info-box {
+        background: #e3f2fd;
+        border: 1px solid #90caf9;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        font-size: 0.85rem;
+        color: #1565c0;
+        line-height: 1.6;
+    }
+
+    .file-input {
+        display: none;
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    .spinning {
+        animation: spin 1s linear infinite;
+    }
+
+    .success-message {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        text-align: center;
+        font-weight: 600;
+    }
+</style>
+```
+
+</head>
+<body>
+    <!-- ヘッダー -->
+    <div class="header">
+        <div class="header-top">
+            <h1>📊 マイ株価ウォッチ</h1>
+            <div class="header-buttons">
+                <button class="header-btn" onclick="openBackupModal()" title="バックアップ">💾</button>
+                <button class="add-stock-btn" onclick="openModal()">
+                    <span>+</span>
+                    <span>銘柄追加</span>
+                </button>
+            </div>
+        </div>
+        <div class="last-update" id="last-update">銘柄を追加してください</div>
+    </div>
+
+```
+<!-- 銘柄追加モーダル -->
+<div class="modal" id="add-modal">
+    <div class="modal-content">
+        <h2 class="modal-title">銘柄を追加</h2>
+        
+        <div class="form-group">
+            <label class="form-label">よく使う銘柄（タップで入力）</label>
+            <div class="preset-buttons">
+                <button class="preset-btn" onclick="selectPreset('S&P 500', 'SPX')">S&P 500</button>
+                <button class="preset-btn" onclick="selectPreset('NASDAQ', 'IXIC')">NASDAQ</button>
+                <button class="preset-btn" onclick="selectPreset('DOW', 'DJI')">DOW</button>
+                <button class="preset-btn" onclick="selectPreset('Apple', 'AAPL')">Apple</button>
+                <button class="preset-btn" onclick="selectPreset('Tesla', 'TSLA')">Tesla</button>
+                <button class="preset-btn" onclick="selectPreset('NVIDIA', 'NVDA')">NVIDIA</button>
+                <button class="preset-btn" onclick="selectPreset('日経平均', 'N225')">日経平均</button>
+                <button class="preset-btn" onclick="selectPreset('トヨタ', '7203.T')">トヨタ</button>
+                <button class="preset-btn" onclick="selectPreset('ソニー', '6758.T')">ソニー</button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">銘柄名</label>
+            <input type="text" class="form-input" id="stock-name" placeholder="例：Apple">
+            <div class="form-help">表示用の名前を入力</div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">ティッカーシンボル</label>
+            <input type="text" class="form-input" id="stock-symbol" placeholder="例：AAPL">
+            <div class="form-help">米国株：AAPL、日本株：7203.T（東証）</div>
+        </div>
+
+        <div class="button-group">
+            <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+            <button class="btn btn-primary" onclick="addStock()">追加</button>
+        </div>
+    </div>
+</div>
+
+<!-- バックアップモーダル -->
+<div class="modal" id="backup-modal">
+    <div class="modal-content">
+        <h2 class="modal-title">💾 データのバックアップ</h2>
+        
+        <div class="info-box">
+            <strong>💡 ヒント：</strong><br>
+            データをファイルで保存すれば、ブラウザのデータを消しても復元できます！<br>
+            別のスマホやPCでも同じデータが使えます。
+        </div>
+
+        <div id="backup-success" style="display: none;" class="success-message">
+            ✅ 復元完了！銘柄が読み込まれました
+        </div>
+
+        <button class="btn-full btn-success" onclick="exportData()">
+            📤 データをダウンロード
+        </button>
+
+        <button class="btn-full btn-info" onclick="document.getElementById('file-input').click()">
+            📥 データを復元（アップロード）
+        </button>
+
+        <input type="file" id="file-input" class="file-input" accept=".json" onchange="importData(event)">
+
+        <div class="form-help" style="text-align: center; margin-top: 1rem;">
+            ダウンロードしたファイルは大切に保管してください
+        </div>
+
+        <div class="button-group" style="margin-top: 2rem;">
+            <button class="btn btn-secondary" onclick="closeBackupModal()">閉じる</button>
+        </div>
+    </div>
+</div>
+
+<!-- 銘柄一覧 -->
+<div class="stocks-container" id="stocks-container">
+    <div class="empty-state">
+        <div class="empty-icon">📈</div>
+        <div class="empty-text">監視する銘柄を追加しましょう</div>
+        <div class="empty-subtext">右上の「+銘柄追加」ボタンから追加できます</div>
+    </div>
+</div>
+
+<!-- 全更新ボタン -->
+<button class="refresh-all-btn" id="refresh-all-btn" onclick="refreshAllStocks()" style="display: none;">
+    <span id="refresh-icon">🔄</span>
+</button>
+
+<!-- 注意書き -->
+<div class="notice">
+    <strong>💾 データについて：</strong> 
+    銘柄データはこのブラウザに保存されます。右上の💾ボタンからバックアップを取っておくと安心です。
+    <br><br>
+    <strong>ご注意：</strong> 
+    このツールは情報提供を目的としています。投資判断は必ずご自身の責任で行ってください。
+</div>
+
+<script>
+    // データ管理
+    let stocks = [];
+    let basePrices = {
+        'SPX': 6929.94,
+        'IXIC': 19675.45,
+        'DJI': 42544.22,
+        'AAPL': 234.56,
+        'TSLA': 387.23,
+        'NVDA': 145.78,
+        'N225': 39345.67,
+        '7203.T': 2890.50,
+        '6758.T': 13250.00
+    };
+
+    // 初期化
+    window.addEventListener('load', function() {
+        loadStocks();
+        renderStocks();
+        startAutoUpdate();
+    });
+
+    // ローカルストレージから読み込み
+    function loadStocks() {
+        const saved = localStorage.getItem('myStocks');
+        if (saved) {
+            stocks = JSON.parse(saved);
+        }
+    }
+
+    // ローカルストレージに保存
+    function saveStocks() {
+        localStorage.setItem('myStocks', JSON.stringify(stocks));
+    }
+
+    // モーダル開く
+    function openModal() {
+        document.getElementById('add-modal').classList.add('show');
+        document.getElementById('stock-name').value = '';
+        document.getElementById('stock-symbol').value = '';
+    }
+
+    // モーダル閉じる
+    function closeModal() {
+        document.getElementById('add-modal').classList.remove('show');
+    }
+
+    // バックアップモーダル開く
+    function openBackupModal() {
+        document.getElementById('backup-modal').classList.add('show');
+        document.getElementById('backup-success').style.display = 'none';
+    }
+
+    // バックアップモーダル閉じる
+    function closeBackupModal() {
+        document.getElementById('backup-modal').classList.remove('show');
+    }
+
+    // データエクスポート
+    function exportData() {
+        if (stocks.length === 0) {
+            alert('保存する銘柄がありません');
+            return;
+        }
+
+        const data = {
+            version: '1.0',
+            exportDate: new Date().toISOString(),
+            stocks: stocks
+        };
+
+        const dataStr = JSON.stringify(data, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `my-stocks-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        alert('✅ ダウンロード完了！\nファイルを大切に保管してください');
+    }
+
+    // データインポート
+    function importData(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                
+                if (!data.stocks || !Array.isArray(data.stocks)) {
+                    throw new Error('無効なファイル形式です');
+                }
+
+                if (confirm(`${data.stocks.length}件の銘柄を復元しますか？\n現在のデータは上書きされます。`)) {
+                    stocks = data.stocks;
+                    saveStocks();
+                    renderStocks();
+                    
+                    document.getElementById('backup-success').style.display = 'block';
+                    setTimeout(() => {
+                        closeBackupModal();
+                    }, 2000);
+                }
+            } catch (error) {
+                alert('❌ ファイルの読み込みに失敗しました\n' + error.message);
+            }
+        };
+        reader.readAsText(file);
+        
+        // ファイル入力をリセット
+        event.target.value = '';
+    }
+
+    // プリセット選択
+    function selectPreset(name, symbol) {
+        document.getElementById('stock-name').value = name;
+        document.getElementById('stock-symbol').value = symbol;
+    }
+
+    // 銘柄追加
+    function addStock() {
+        const name = document.getElementById('stock-name').value.trim();
+        const symbol = document.getElementById('stock-symbol').value.trim().toUpperCase();
+
+        if (!name || !symbol) {
+            alert('銘柄名とティッカーシンボルを入力してください');
+            return;
+        }
+
+        // 重複チェック
+        if (stocks.find(s => s.symbol === symbol)) {
+            alert('この銘柄は既に追加されています');
+            return;
+        }
+
+        // 基準価格を設定（なければランダム）
+        if (!basePrices[symbol]) {
+            basePrices[symbol] = Math.random() * 1000 + 100;
+        }
+
+        const stock = {
+            id: Date.now(),
+            name: name,
+            symbol: symbol,
+            price: basePrices[symbol],
+            previousClose: basePrices[symbol] * (1 + (Math.random() - 0.5) * 0.02),
+            lastUpdate: new Date()
+        };
+
+        stocks.push(stock);
+        saveStocks();
+        renderStocks();
+        closeModal();
+    }
+
+    // 銘柄削除
+    function deleteStock(id) {
+        if (confirm('この銘柄を削除しますか？')) {
+            stocks = stocks.filter(s => s.id !== id);
+            saveStocks();
+            renderStocks();
+        }
+    }
+
+    // 価格更新（シミュレーション）
+    function updateStockPrice(stock) {
+        const changePercent = (Math.random() - 0.5) * 0.3;
+        const change = stock.price * (changePercent / 100);
+        stock.price = stock.price + change;
+        stock.lastUpdate = new Date();
+    }
+
+    // 全銘柄更新
+    function refreshAllStocks() {
+        const icon = document.getElementById('refresh-icon');
+        icon.style.display = 'inline-block';
+        icon.classList.add('spinning');
+
+        stocks.forEach(stock => {
+            updateStockPrice(stock);
+        });
+
+        setTimeout(() => {
+            saveStocks();
+            renderStocks();
+            icon.classList.remove('spinning');
+        }, 500);
+    }
+
+    // 銘柄描画
+    function renderStocks() {
+        const container = document.getElementById('stocks-container');
+        const refreshBtn = document.getElementById('refresh-all-btn');
+
+        if (stocks.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📈</div>
+                    <div class="empty-text">監視する銘柄を追加しましょう</div>
+                    <div class="empty-subtext">右上の「+銘柄追加」ボタンから追加できます</div>
+                </div>
+            `;
+            refreshBtn.style.display = 'none';
+            document.getElementById('last-update').textContent = '銘柄を追加してください';
+            return;
+        }
+
+        refreshBtn.style.display = 'flex';
+
+        container.innerHTML = stocks.map(stock => {
+            const change = stock.price - stock.previousClose;
+            const changePercent = (change / stock.previousClose) * 100;
+            const isPositive = change >= 0;
+
+            return `
+                <div class="stock-card">
+                    <div class="stock-header">
+                        <div>
+                            <div class="stock-name">${stock.name}</div>
+                            <div class="stock-symbol">${stock.symbol}</div>
+                        </div>
+                        <button class="delete-btn" onclick="deleteStock(${stock.id})">×</button>
+                    </div>
+                    <div class="stock-price">${stock.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <div class="stock-change">
+                        <span class="change-value ${isPositive ? 'positive' : 'negative'}">
+                            ${isPositive ? '+' : ''}${change.toFixed(2)}
+                        </span>
+                        <span class="change-percent ${isPositive ? 'positive-bg' : 'negative-bg'}">
+                            ${isPositive ? '+' : ''}${changePercent.toFixed(2)}%
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        const now = new Date();
+        document.getElementById('last-update').textContent = now.toLocaleString('ja-JP', { 
+            month: 'short', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        }) + ' 更新';
+    }
+
+    // 自動更新（10秒ごと）
+    function startAutoUpdate() {
+        setInterval(() => {
+            if (stocks.length > 0) {
+                stocks.forEach(stock => {
+                    updateStockPrice(stock);
+                });
+                saveStocks();
+                renderStocks();
+            }
+        }, 10000);
+    }
+
+    // モーダル外クリックで閉じる
+    document.getElementById('add-modal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeModal();
+        }
+    });
+
+    document.getElementById('backup-modal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeBackupModal();
+        }
+    });
+</script>
+```
+
+</body>
+</html>
