@@ -1,0 +1,16 @@
+brain:
+  provider: ollama            # "ollama" | "stub" (future: "claude", "openai")
+  model: qwen3:4b             # Ollama model tag
+  base_url: http://localhost:11434
+  temperature: 0.3
+  num_ctx: 8192
+  timeout: 120
+
+meeting:
+  language: ja
+  verbose: false
+  max_iter: 3
+
+output:
+  save_to_file: true
+  output_dir: ./outputs
