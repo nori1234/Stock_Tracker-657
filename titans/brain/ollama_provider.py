@@ -20,12 +20,15 @@ class OllamaProvider(BrainProvider):
 
     def get_llm(self) -> LLM:
         if self._llm_instance is None:
+            # crewai routes "ollama/*" through an OpenAI-compatible client, so
+            # Ollama-specific options (e.g. num_ctx) must be passed via
+            # extra_body["options"] — they are rejected as top-level kwargs.
             self._llm_instance = LLM(
                 model=f"ollama/{self._model}",
                 base_url=self._base_url,
                 temperature=self._temperature,
                 timeout=self._timeout,
-                extra_params={"num_ctx": self._num_ctx},
+                extra_body={"options": {"num_ctx": self._num_ctx}},
             )
         return self._llm_instance
 
