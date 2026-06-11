@@ -1,10 +1,21 @@
 brain:
-  provider: ollama            # "ollama" | "anthropic" | "stub"
+  provider: ollama            # "ollama" | "openai_compatible" | "anthropic" | "stub"
   model: qwen3:4b             # ollama: モデルタグ / anthropic: 例 claude-sonnet-4-6
   base_url: http://localhost:11434
   temperature: 0.3
   num_ctx: 8192
   timeout: 120
+  api_key: ""                 # openai_compatible 用（空ならダミー/環境変数 TITANS_LLM_API_KEY）
+
+# --- Phase 5: 共有SSM脳（TTT-Mamba）へ切り替える例 ---
+# 1) GGUF入手済み → `ollama create ttt-mamba -f Modelfile` 後、上の provider: ollama のまま model: ttt-mamba
+# 2) vLLM/llama.cpp server等でOpenAI互換配信 → 下記に切り替え:
+# brain:
+#   provider: openai_compatible
+#   model: ttt-mamba-3b           # サーバーが公開するモデル名
+#   base_url: http://localhost:8000/v1
+#   temperature: 0.3
+#   timeout: 120
 
 retrieval:
   enabled: true

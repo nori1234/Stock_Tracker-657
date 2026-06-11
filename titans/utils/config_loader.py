@@ -7,12 +7,13 @@ load_dotenv()
 
 
 class BrainConfig(BaseModel):
-    provider: str = "ollama"
+    provider: str = "ollama"    # "ollama" | "openai_compatible" | "anthropic" | "stub"
     model: str = "qwen3:4b"
     base_url: str = "http://localhost:11434"
     temperature: float = 0.3
     num_ctx: int = 8192
     timeout: int = 120
+    api_key: str = ""           # openai_compatible 用（空ならダミー/環境変数）
 
 
 class RetrievalConfig(BaseModel):
@@ -72,6 +73,15 @@ def create_brain_provider(config: AppConfig):
             temperature=config.brain.temperature,
             num_ctx=config.brain.num_ctx,
             timeout=config.brain.timeout,
+        )
+    elif config.brain.provider == "openai_compatible":
+        from titans.brain.openai_compatible_provider import OpenAICompatibleProvider
+        return OpenAICompatibleProvider(
+            model=config.brain.model,
+            base_url=config.brain.base_url,
+            temperature=config.brain.temperature,
+            timeout=config.brain.timeout,
+            api_key=config.brain.api_key,
         )
     elif config.brain.provider == "anthropic":
         from titans.brain.anthropic_provider import AnthropicProvider

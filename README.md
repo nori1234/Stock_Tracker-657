@@ -57,14 +57,63 @@ knowledge/       # サンプル知識（.md/.txt と関係グラフ記法）
 tests/           # 40+ のユニット / E2E テスト
 ```
 
-## セットアップ
+## ローカル環境構築（Phase 1〜4）
+
+検証環境: Python 3.11 / Linux・macOS。GPUは無くてもCPUで動く（Qwen3-4Bは応答が遅くなる程度）。
+
+### 1. リポジトリと Python 仮想環境
 
 ```bash
-pip install -r requirements.txt
+git clone <this-repo>
+cd Stock_Tracker-657
 
-# ローカルLLM（推奨・本筋の構成）
-ollama pull qwen3:4b
+python3.11 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
+
+### 2. Ollama 本体のインストールと起動
+
+```bash
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+# macOS: https://ollama.com/download から Ollama.app を入れる（brew install ollama も可）
+
+# サーバーを起動（別ターミナルで起動したままにする。macOSアプリ版は自動起動）
+ollama serve
+```
+
+### 3. モデルの取得
+
+```bash
+ollama pull qwen3:4b                # 取締役会の推論モデル（必須・約2.4GB）
+ollama pull nomic-embed-text        # 意味検索を本物にする埋め込みモデル（任意・推奨）
+```
+
+`nomic-embed-text` を入れる場合は `config.yaml` の `retrieval.embedder` を `ollama` に変更する。
+入れない場合は既定の `hashing`（オフライン・字句ベース）のまま動作する。
+
+### 4. 接続確認
+
+```bash
+python main.py --health-check       # Status: OK が出れば準備完了
+```
+
+### 5. （任意）Letta 長期記憶サーバー
+
+既定の長期記憶はローカルJSON（`storage/memory.json`）で完結するため不要。
+Lettaサーバーを使う場合のみ `pip install letta-client` と Letta サーバーを用意し、
+`config.yaml` の `memory.provider` を `letta` にして `letta_base_url` / `letta_agent_id` を設定する。
+
+### トラブルシュート
+
+| 症状 | 対処 |
+|------|------|
+| `--health-check` が FAIL | `ollama serve` が起動しているか、`base_url` が合っているか確認 |
+| 会議が `model not found` | `ollama pull qwen3:4b` を実行したか確認 |
+| 取り込み/検索が遅い・重い | `embedder: hashing`（既定）はモデル不要で軽い。意味検索品質を上げたい時だけ `ollama` に |
+| telemetry のタイムアウト | `CREWAI_DISABLE_TELEMETRY=true`（`main.py` が自動設定済み） |
 
 ## 使い方
 
@@ -104,7 +153,7 @@ python main.py --verbose "課題"      # CrewAI の詳細ログ
 
 | セクション | 主なキー | 説明 |
 |-----------|---------|------|
-| `brain` | `provider` | `ollama` / `anthropic` / `stub` |
+| `brain` | `provider` | `ollama` / `openai_compatible` / `anthropic` / `stub` |
 | | `model` | Ollamaモデルタグ、または `claude-...` |
 | `retrieval` | `embedder` | `hashing`（オフライン）/ `ollama`（要embeddingモデル） |
 | | `graph_enabled`, `graph_max_hops` | GraphRAGの有効化とホップ数 |
@@ -126,7 +175,58 @@ brain:
 - [x] **Phase 2** — RAG統合（Qdrant + BM25 + RRF）
 - [x] **Phase 3** — 長期記憶（Memory Loader + 書き戻し / Lettaアダプタ）
 - [x] **Phase 4** — 企業知識グラフ（GraphRAG 関係性探索）
-- [ ] **Phase 5** — 共有SSM脳（TTT-Mamba）への置換 ※`BrainProvider`実装の追加のみ
+- [~] **Phase 5** — 共有SSM脳（TTT-Mamba）への置換 ※接続層は実装済み・モデル差し込み待ち
+
+## Phase 5: 共有SSM脳（TTT-Mamba）への置換
+
+設計思想「モデルは交換可能」により、**アプリ側のコード変更はゼロ**で、
+`config.yaml` の `brain` セクションを切り替えるだけでモデルを差し替えられる。
+難所は「TTT-Mamba をどう推論可能にするか」という外部のモデル準備に集約される。
+
+### ルートA: GGUF を入手して Ollama に登録（最も手軽）
+
+TTT-Mamba の GGUF が手に入る場合、新規コードは不要。
+
+```bash
+# Modelfile を用意（例）
+cat > Modelfile <<'EOT'
+FROM ./ttt-mamba-3b.gguf
+PARAMETER temperature 0.3
+PARAMETER num_ctx 8192
+EOT
+
+ollama create ttt-mamba -f Modelfile
+```
+
+`config.yaml` は `provider: ollama` のまま `model: ttt-mamba` にするだけ。
+
+### ルートB: vLLM / llama.cpp server で OpenAI 互換配信
+
+GGUF以外の重み（HF形式など）や、より高速な推論をしたい場合。
+
+```bash
+# 例: vLLM で OpenAI 互換サーバーを起動
+vllm serve <ttt-mamba-model-path> --port 8000
+# あるいは llama.cpp: ./llama-server -m ttt-mamba.gguf --port 8000
+```
+
+`config.yaml`:
+
+```yaml
+brain:
+  provider: openai_compatible
+  model: ttt-mamba-3b           # サーバーが公開するモデル名
+  base_url: http://localhost:8000/v1
+```
+
+接続層（`OpenAICompatibleProvider`）は実装・テスト済みで、認証が要るサーバーは
+`.env` の `TITANS_LLM_API_KEY` で対応する。確認は `python main.py --health-check`。
+
+### 現状の注意
+
+TTT-Mamba は研究モデルで、`ollama pull` 一発で入る安定した配布形態がまだ無い。
+本リポジトリで用意済みなのは「モデルが手に入った後に差し込む接続層」までであり、
+モデル重み自体の入手・量子化は利用者側の作業になる。
 
 ## テスト
 
