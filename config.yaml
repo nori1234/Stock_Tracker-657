@@ -9,9 +9,11 @@ brain:
 retrieval:
   enabled: true
   storage_dir: ./storage
-  top_k: 4
+  top_k: 6
   embedder: hashing           # "hashing"(オフライン) | "ollama"(要embeddingモデル)
   embedding_dim: 512
+  graph_enabled: true         # STEP2 GraphRAG (関係性探索)
+  graph_max_hops: 2           # 関係連鎖を辿る最大ホップ数
 
 memory:
   enabled: true

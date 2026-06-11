@@ -18,9 +18,11 @@ class BrainConfig(BaseModel):
 class RetrievalConfig(BaseModel):
     enabled: bool = True
     storage_dir: str = "./storage"
-    top_k: int = 4
+    top_k: int = 6
     embedder: str = "hashing"   # "hashing" (offline) | "ollama" (要 embedding モデル)
     embedding_dim: int = 512
+    graph_enabled: bool = True
+    graph_max_hops: int = 2
 
 
 class MemoryConfig(BaseModel):

@@ -28,6 +28,8 @@ def _create_knowledge_base(app_config):
         embedder_kind=app_config.retrieval.embedder,
         embedding_dim=app_config.retrieval.embedding_dim,
         ollama_base_url=app_config.brain.base_url,
+        graph_enabled=app_config.retrieval.graph_enabled,
+        graph_max_hops=app_config.retrieval.graph_max_hops,
     )
 
 
@@ -82,8 +84,11 @@ def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no
         n = kb.ingest_directory(ingest_dir)
         counts = kb.count()
         kb.close()
+        detail = f"Qdrant: {counts['qdrant']} 件 / BM25: {counts['bm25']} 件"
+        if "graph" in counts:
+            detail += f" / 知識グラフ: {counts['graph']} エッジ"
         console.print(Panel(
-            f"取り込みチャンク数: {n}\nQdrant: {counts['qdrant']} 件 / BM25: {counts['bm25']} 件",
+            f"取り込みチャンク数: {n}\n{detail}",
             title="知識取り込み完了",
             border_style="green",
         ))
