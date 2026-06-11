@@ -4,7 +4,9 @@ brain:
   base_url: http://localhost:11434
   temperature: 0.3
   num_ctx: 4096               # 8192→4096: KVキャッシュ削減で推論速度向上
-  max_tokens: 800             # 出力上限（トークン）: 無制限だと長文生成で詰まる
+  max_tokens: 2048            # 出力上限（トークン）: EOSで停止するので速度影響なし。
+                              # qwen3 思考が万一出ても空回答にならない安全網
+  disable_thinking: true      # qwen3 等の思考モデルで /no_think を注入（高速化）
   timeout: 180
   api_key: ""                 # openai_compatible 用（空ならダミー/環境変数 TITANS_LLM_API_KEY）
 

@@ -12,7 +12,8 @@ class BrainConfig(BaseModel):
     base_url: str = "http://localhost:11434"
     temperature: float = 0.3
     num_ctx: int = 4096
-    max_tokens: int = 800       # 出力トークン上限（無制限だと長文生成で詰まる）
+    max_tokens: int = 2048      # 出力トークン上限（EOSで停止。空回答防止の安全網）
+    disable_thinking: bool = True  # qwen3 等の思考モデルに /no_think を注入
     timeout: int = 180
     api_key: str = ""           # openai_compatible 用（空ならダミー/環境変数）
 

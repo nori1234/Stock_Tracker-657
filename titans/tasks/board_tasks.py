@@ -7,6 +7,7 @@ def create_board_tasks(
     user_input: str,
     retrieved_knowledge: str = "",
     long_term_memory: str = "",
+    model_directive: str = "",
 ) -> list[Task]:
     """
     5-task sequential pipeline with explicit context=[...] chains.
@@ -102,4 +103,13 @@ def create_board_tasks(
         context=[task_cfo, task_clo, task_ceo_draft, task_auditor],
     )
 
-    return [task_cfo, task_clo, task_ceo_draft, task_auditor, task_ceo_final]
+    tasks = [task_cfo, task_clo, task_ceo_draft, task_auditor, task_ceo_final]
+
+    # model_directive: qwen3 等の「思考モデル」を高速化するためのプロンプト指令
+    # （例: "/no_think"）。思考トークンの暴走で回答が空になる/遅くなるのを防ぐ。
+    # qwen3 のチャットテンプレートが解釈する soft switch なので API 経路に依存しない。
+    if model_directive:
+        for t in tasks:
+            t.description = f"{t.description}\n\n{model_directive}"
+
+    return tasks

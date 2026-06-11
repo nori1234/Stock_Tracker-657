@@ -58,11 +58,20 @@ class BoardMeetingFlow(Flow[MeetingState]):
     def kickoff_meeting(self):
         shared_llm = self._brain_provider.get_llm()
         agents = create_board_agents(shared_llm, self._config)
+
+        # qwen3 は既定で <think> 思考トークンを出力する。トークン上限内で思考が
+        # 完結せず回答が空になる/遅くなるため、/no_think で思考を抑止する。
+        # /no_think は qwen3 のテンプレート固有のため、qwen3 のときだけ注入する。
+        model_name = self._config.brain.model.lower()
+        disable_thinking = getattr(self._config.brain, "disable_thinking", True)
+        model_directive = "/no_think" if (disable_thinking and "qwen3" in model_name) else ""
+
         tasks = create_board_tasks(
             agents,
             self.state.user_input,
             retrieved_knowledge=self.state.retrieved_knowledge,
             long_term_memory=self.state.long_term_memory,
+            model_directive=model_directive,
         )
 
         crew = Crew(
