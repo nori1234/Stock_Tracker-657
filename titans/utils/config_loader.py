@@ -23,6 +23,15 @@ class RetrievalConfig(BaseModel):
     embedding_dim: int = 512
 
 
+class MemoryConfig(BaseModel):
+    enabled: bool = True
+    provider: str = "local"     # "local" (JSON永続化) | "letta" (要Lettaサーバー)
+    storage_dir: str = "./storage"
+    top_k: int = 5
+    letta_base_url: str = "http://localhost:8283"
+    letta_agent_id: str = ""
+
+
 class MeetingConfig(BaseModel):
     language: str = "ja"
     verbose: bool = False
@@ -37,6 +46,7 @@ class OutputConfig(BaseModel):
 class AppConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
+    memory: MemoryConfig = MemoryConfig()
     meeting: MeetingConfig = MeetingConfig()
     output: OutputConfig = OutputConfig()
 

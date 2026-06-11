@@ -18,6 +18,7 @@ class MeetingReport:
     auditor_output: str
     ceo_final_output: str
     retrieved_knowledge: str = ""
+    long_term_memory: str = ""
 
 
 class ReportRenderer:
@@ -32,6 +33,12 @@ class ReportRenderer:
     def render_to_console(self, report: MeetingReport) -> None:
         console = Console()
         console.print(Rule("[bold]Titans Board v2.0 — 取締役会議事録[/bold]"))
+        if report.long_term_memory:
+            console.print(Panel(
+                Markdown(report.long_term_memory),
+                title="[dim]長期記憶（Memory Loader）[/dim]",
+                border_style="dim",
+            ))
         if report.retrieved_knowledge:
             console.print(Panel(
                 Markdown(report.retrieved_knowledge),
@@ -55,6 +62,7 @@ class ReportRenderer:
             "timestamp": ts,
             "user_input": report.user_input,
             "retrieved_knowledge": report.retrieved_knowledge,
+            "long_term_memory": report.long_term_memory,
             "sections": {
                 "cfo": report.cfo_output,
                 "clo": report.clo_output,

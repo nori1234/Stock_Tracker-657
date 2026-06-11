@@ -3,7 +3,12 @@
 Titans Board v2.0 — Phase 1 MVP
 Usage: python main.py "ここに経営課題を入力"
 """
+import os
 import sys
+
+# オフライン環境でのテレメトリ送信タイムアウト(30秒/回)を防ぐ
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 import click
 from rich.console import Console
@@ -34,13 +39,43 @@ def _create_knowledge_base(app_config):
 @click.option("--health-check", is_flag=True, default=False, help="Check Ollama connectivity only")
 @click.option("--ingest", "ingest_dir", default=None, help="知識ディレクトリ(.txt/.md)をRAGストアに取り込んで終了")
 @click.option("--no-rag", is_flag=True, default=False, help="RAG検索を無効化して会議を実行")
-def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no_rag):
+@click.option("--remember", "remember_text", default=None, help="長期記憶に1件追加して終了")
+@click.option("--category", default="経営方針", help="--remember のカテゴリ (ユーザー嗜好/経営方針/過去意思決定/禁止事項/顧客情報)")
+@click.option("--memories", is_flag=True, default=False, help="長期記憶の一覧を表示して終了")
+@click.option("--no-memory", is_flag=True, default=False, help="長期記憶を無効化して会議を実行")
+def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no_rag,
+         remember_text, category, memories, no_memory):
     """Titans Board v2.0 — AI Executive Board of Directors"""
     app_config = load_config(config_path)
     if verbose:
         app_config.meeting.verbose = True
     if no_rag:
         app_config.retrieval.enabled = False
+    if no_memory:
+        app_config.memory.enabled = False
+
+    if remember_text:
+        from titans.memory import CATEGORIES, MemoryEntry, create_memory_store
+        if category not in CATEGORIES:
+            console.print(f"[red]Error:[/red] カテゴリは {CATEGORIES} のいずれかにしてください")
+            sys.exit(1)
+        store = create_memory_store(app_config)
+        store.remember(MemoryEntry(category=category, content=remember_text))
+        console.print(Panel(
+            f"[{category}] {remember_text}\n合計: {store.count()} 件",
+            title="長期記憶に追加しました", border_style="green",
+        ))
+        sys.exit(0)
+
+    if memories:
+        from titans.memory import create_memory_store
+        store = create_memory_store(app_config)
+        lines = [f"[{e.category} | {e.timestamp}] {e.content[:80]}" for e in store.entries()]
+        console.print(Panel(
+            "\n".join(lines) if lines else "（記憶はまだありません）",
+            title=f"長期記憶 全{store.count()}件", border_style="cyan",
+        ))
+        sys.exit(0)
 
     if ingest_dir:
         kb = _create_knowledge_base(app_config)
@@ -81,10 +116,16 @@ def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no
     if app_config.retrieval.enabled:
         knowledge_base = _create_knowledge_base(app_config)
 
+    memory_store = None
+    if app_config.memory.enabled:
+        from titans.memory import create_memory_store
+        memory_store = create_memory_store(app_config)
+
     flow = BoardMeetingFlow(
         brain_provider=brain_provider,
         config=app_config,
         knowledge_base=knowledge_base,
+        memory_store=memory_store,
     )
     flow.kickoff(inputs={"user_input": user_input})
     if knowledge_base is not None:

@@ -13,6 +13,14 @@ retrieval:
   embedder: hashing           # "hashing"(オフライン) | "ollama"(要embeddingモデル)
   embedding_dim: 512
 
+memory:
+  enabled: true
+  provider: local             # "local"(JSON永続化) | "letta"(要Lettaサーバー)
+  storage_dir: ./storage
+  top_k: 5
+  letta_base_url: http://localhost:8283
+  letta_agent_id: ""
+
 meeting:
   language: ja
   verbose: false
