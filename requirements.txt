@@ -1,5 +1,7 @@
-crewai>=1.14.0
-crewai-tools>=1.14.0
+# 動作検証済みバージョンに固定（crewai は >= にすると未検証のメジャー更新を
+# 引き込み「Invalid response from LLM call」等の挙動差が出るため == で固定する）
+crewai==1.14.6
+crewai-tools==1.14.6
 pyyaml>=6.0
 pydantic>=2.0
 python-dotenv>=1.2.2
