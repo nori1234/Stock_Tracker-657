@@ -19,7 +19,17 @@ class QdrantRetriever(Retriever):
         Path(storage_path).mkdir(parents=True, exist_ok=True)
         self._client = QdrantClient(path=storage_path)
         self._embedder = embedder
-        if not self._client.collection_exists(COLLECTION):
+        if self._client.collection_exists(COLLECTION):
+            # embedder 切替時に次元が変わった場合はコレクションを再作成する
+            info = self._client.get_collection(COLLECTION)
+            existing_dim = info.config.params.vectors.size
+            if existing_dim != embedder.dim:
+                self._client.delete_collection(COLLECTION)
+                self._client.create_collection(
+                    COLLECTION,
+                    vectors_config=VectorParams(size=embedder.dim, distance=Distance.COSINE),
+                )
+        else:
             self._client.create_collection(
                 COLLECTION,
                 vectors_config=VectorParams(size=embedder.dim, distance=Distance.COSINE),

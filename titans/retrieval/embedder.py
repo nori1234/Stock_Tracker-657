@@ -42,12 +42,21 @@ class OllamaEmbedder(Embedder):
     """
     Ollama の埋め込みモデル（例: nomic-embed-text）を使う本番用実装。
     モデルが pull 済みの環境でのみ使用可能。
+    初期化時に実際のモデル出力次元を自動検出するため、config の embedding_dim と
+    モデルの次元が一致していなくても正しく動作する。
     """
 
     def __init__(self, model: str = "nomic-embed-text", base_url: str = "http://localhost:11434", dim: int = 768):
         self._model = model
         self._base_url = base_url
-        self.dim = dim
+        # モデルに1回問い合わせて実際の次元を取得（config値より優先）
+        try:
+            import ollama as ollama_client
+            client = ollama_client.Client(host=self._base_url)
+            test = client.embeddings(model=self._model, prompt="hi")
+            self.dim = len(test["embedding"])
+        except Exception:
+            self.dim = dim  # サーバー未起動時は引数値をフォールバックとして使う
 
     def embed(self, text: str) -> list[float]:
         import ollama as ollama_client
