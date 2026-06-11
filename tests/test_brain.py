@@ -31,7 +31,7 @@ def test_load_config_defaults_when_no_file():
     config = load_config("nonexistent_config_xyz.yaml")
     assert config.brain.provider == "ollama"
     assert config.brain.model == "qwen3:4b"
-    assert config.meeting.max_iter == 3
+    assert config.meeting.max_iter == 1
 
 
 # --- Phase 5: OpenAI互換 (TTT-Mamba / vLLM 等) Provider ---

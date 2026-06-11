@@ -11,8 +11,9 @@ class BrainConfig(BaseModel):
     model: str = "qwen3:4b"
     base_url: str = "http://localhost:11434"
     temperature: float = 0.3
-    num_ctx: int = 8192
-    timeout: int = 120
+    num_ctx: int = 4096
+    max_tokens: int = 800       # 出力トークン上限（無制限だと長文生成で詰まる）
+    timeout: int = 180
     api_key: str = ""           # openai_compatible 用（空ならダミー/環境変数）
 
 
@@ -38,7 +39,7 @@ class MemoryConfig(BaseModel):
 class MeetingConfig(BaseModel):
     language: str = "ja"
     verbose: bool = False
-    max_iter: int = 3
+    max_iter: int = 1
 
 
 class OutputConfig(BaseModel):
@@ -72,6 +73,7 @@ def create_brain_provider(config: AppConfig):
             base_url=config.brain.base_url,
             temperature=config.brain.temperature,
             num_ctx=config.brain.num_ctx,
+            max_tokens=config.brain.max_tokens,
             timeout=config.brain.timeout,
         )
     elif config.brain.provider == "openai_compatible":

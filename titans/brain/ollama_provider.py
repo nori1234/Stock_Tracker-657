@@ -9,12 +9,14 @@ class OllamaProvider(BrainProvider):
         base_url: str,
         temperature: float,
         num_ctx: int,
+        max_tokens: int,
         timeout: int,
     ):
         self._model = model
         self._base_url = base_url
         self._temperature = temperature
         self._num_ctx = num_ctx
+        self._max_tokens = max_tokens
         self._timeout = timeout
         self._llm_instance: LLM | None = None
 
@@ -27,8 +29,12 @@ class OllamaProvider(BrainProvider):
                 model=f"ollama/{self._model}",
                 base_url=self._base_url,
                 temperature=self._temperature,
+                max_tokens=self._max_tokens,
                 timeout=self._timeout,
-                extra_body={"options": {"num_ctx": self._num_ctx}},
+                extra_body={"options": {
+                    "num_ctx": self._num_ctx,
+                    "num_predict": self._max_tokens,  # Ollama native output cap
+                }},
             )
         return self._llm_instance
 
