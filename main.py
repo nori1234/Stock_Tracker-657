@@ -16,17 +16,43 @@ from titans.utils.config_loader import create_brain_provider, load_config
 console = Console()
 
 
+def _create_knowledge_base(app_config):
+    from titans.retrieval.knowledge_base import KnowledgeBase
+    return KnowledgeBase(
+        storage_dir=app_config.retrieval.storage_dir,
+        embedder_kind=app_config.retrieval.embedder,
+        embedding_dim=app_config.retrieval.embedding_dim,
+        ollama_base_url=app_config.brain.base_url,
+    )
+
+
 @click.command()
 @click.argument("user_input", required=False)
 @click.option("--config", "config_path", default="config.yaml", help="Path to config.yaml")
 @click.option("--verbose", is_flag=True, default=False, help="Enable CrewAI verbose output")
 @click.option("--no-save", is_flag=True, default=False, help="Do not save output to file")
 @click.option("--health-check", is_flag=True, default=False, help="Check Ollama connectivity only")
-def main(user_input, config_path, verbose, no_save, health_check):
+@click.option("--ingest", "ingest_dir", default=None, help="知識ディレクトリ(.txt/.md)をRAGストアに取り込んで終了")
+@click.option("--no-rag", is_flag=True, default=False, help="RAG検索を無効化して会議を実行")
+def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no_rag):
     """Titans Board v2.0 — AI Executive Board of Directors"""
     app_config = load_config(config_path)
     if verbose:
         app_config.meeting.verbose = True
+    if no_rag:
+        app_config.retrieval.enabled = False
+
+    if ingest_dir:
+        kb = _create_knowledge_base(app_config)
+        n = kb.ingest_directory(ingest_dir)
+        counts = kb.count()
+        kb.close()
+        console.print(Panel(
+            f"取り込みチャンク数: {n}\nQdrant: {counts['qdrant']} 件 / BM25: {counts['bm25']} 件",
+            title="知識取り込み完了",
+            border_style="green",
+        ))
+        sys.exit(0)
 
     brain_provider = create_brain_provider(app_config)
 
@@ -51,8 +77,18 @@ def main(user_input, config_path, verbose, no_save, health_check):
         border_style="bold blue",
     ))
 
-    flow = BoardMeetingFlow(brain_provider=brain_provider, config=app_config)
+    knowledge_base = None
+    if app_config.retrieval.enabled:
+        knowledge_base = _create_knowledge_base(app_config)
+
+    flow = BoardMeetingFlow(
+        brain_provider=brain_provider,
+        config=app_config,
+        knowledge_base=knowledge_base,
+    )
     flow.kickoff(inputs={"user_input": user_input})
+    if knowledge_base is not None:
+        knowledge_base.close()
 
     report = flow.state.meeting_report
     if report is None:

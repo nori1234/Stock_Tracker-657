@@ -1,10 +1,17 @@
 brain:
-  provider: ollama            # "ollama" | "stub" (future: "claude", "openai")
-  model: qwen3:4b             # Ollama model tag
+  provider: ollama            # "ollama" | "anthropic" | "stub"
+  model: qwen3:4b             # ollama: モデルタグ / anthropic: 例 claude-sonnet-4-6
   base_url: http://localhost:11434
   temperature: 0.3
   num_ctx: 8192
   timeout: 120
+
+retrieval:
+  enabled: true
+  storage_dir: ./storage
+  top_k: 4
+  embedder: hashing           # "hashing"(オフライン) | "ollama"(要embeddingモデル)
+  embedding_dim: 512
 
 meeting:
   language: ja

@@ -15,6 +15,14 @@ class BrainConfig(BaseModel):
     timeout: int = 120
 
 
+class RetrievalConfig(BaseModel):
+    enabled: bool = True
+    storage_dir: str = "./storage"
+    top_k: int = 4
+    embedder: str = "hashing"   # "hashing" (offline) | "ollama" (要 embedding モデル)
+    embedding_dim: int = 512
+
+
 class MeetingConfig(BaseModel):
     language: str = "ja"
     verbose: bool = False
@@ -28,6 +36,7 @@ class OutputConfig(BaseModel):
 
 class AppConfig(BaseModel):
     brain: BrainConfig = BrainConfig()
+    retrieval: RetrievalConfig = RetrievalConfig()
     meeting: MeetingConfig = MeetingConfig()
     output: OutputConfig = OutputConfig()
 
@@ -50,6 +59,13 @@ def create_brain_provider(config: AppConfig):
             base_url=config.brain.base_url,
             temperature=config.brain.temperature,
             num_ctx=config.brain.num_ctx,
+            timeout=config.brain.timeout,
+        )
+    elif config.brain.provider == "anthropic":
+        from titans.brain.anthropic_provider import AnthropicProvider
+        return AnthropicProvider(
+            model=config.brain.model,
+            temperature=config.brain.temperature,
             timeout=config.brain.timeout,
         )
     elif config.brain.provider == "stub":

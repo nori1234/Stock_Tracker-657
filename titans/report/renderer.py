@@ -17,6 +17,7 @@ class MeetingReport:
     ceo_draft_output: str
     auditor_output: str
     ceo_final_output: str
+    retrieved_knowledge: str = ""
 
 
 class ReportRenderer:
@@ -31,6 +32,12 @@ class ReportRenderer:
     def render_to_console(self, report: MeetingReport) -> None:
         console = Console()
         console.print(Rule("[bold]Titans Board v2.0 — 取締役会議事録[/bold]"))
+        if report.retrieved_knowledge:
+            console.print(Panel(
+                Markdown(report.retrieved_knowledge),
+                title="[dim]参照知識（RAG検索結果）[/dim]",
+                border_style="dim",
+            ))
         for _, title, color, attr in self._SECTIONS:
             content = getattr(report, attr, "")
             console.print(Panel(
@@ -47,6 +54,7 @@ class ReportRenderer:
         data = {
             "timestamp": ts,
             "user_input": report.user_input,
+            "retrieved_knowledge": report.retrieved_knowledge,
             "sections": {
                 "cfo": report.cfo_output,
                 "clo": report.clo_output,
