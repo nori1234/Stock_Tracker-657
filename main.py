@@ -38,15 +38,20 @@ def _create_knowledge_base(app_config):
 @click.option("--config", "config_path", default="config.yaml", help="Path to config.yaml")
 @click.option("--verbose", is_flag=True, default=False, help="Enable CrewAI verbose output")
 @click.option("--no-save", is_flag=True, default=False, help="Do not save output to file")
-@click.option("--health-check", is_flag=True, default=False, help="Check Ollama connectivity only")
+@click.option("--health-check", is_flag=True, default=False, help="Check LLM connectivity only")
 @click.option("--ingest", "ingest_dir", default=None, help="知識ディレクトリ(.txt/.md)をRAGストアに取り込んで終了")
 @click.option("--no-rag", is_flag=True, default=False, help="RAG検索を無効化して会議を実行")
 @click.option("--remember", "remember_text", default=None, help="長期記憶に1件追加して終了")
 @click.option("--category", default="経営方針", help="--remember のカテゴリ (ユーザー嗜好/経営方針/過去意思決定/禁止事項/顧客情報)")
 @click.option("--memories", is_flag=True, default=False, help="長期記憶の一覧を表示して終了")
 @click.option("--no-memory", is_flag=True, default=False, help="長期記憶を無効化して会議を実行")
+@click.option("--anthropic", "use_anthropic", is_flag=True, default=False,
+              help="Anthropic API を使う（ANTHROPIC_API_KEY 必須・Ollama不要）。"
+                   "config.yamlを変更せずにワンショットで切り替え。")
+@click.option("--model", "model_override", default=None,
+              help="モデルを上書き指定（例: --model claude-haiku-4-5-20251001）")
 def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no_rag,
-         remember_text, category, memories, no_memory):
+         remember_text, category, memories, no_memory, use_anthropic, model_override):
     """Titans Board v2.0 — AI Executive Board of Directors"""
     app_config = load_config(config_path)
     if verbose:
@@ -55,6 +60,12 @@ def main(user_input, config_path, verbose, no_save, health_check, ingest_dir, no
         app_config.retrieval.enabled = False
     if no_memory:
         app_config.memory.enabled = False
+    if use_anthropic:
+        app_config.brain.provider = "anthropic"
+        if not app_config.brain.model.startswith("claude-"):
+            app_config.brain.model = "claude-haiku-4-5-20251001"
+    if model_override:
+        app_config.brain.model = model_override
 
     if remember_text:
         from titans.memory import CATEGORIES, MemoryEntry, create_memory_store
