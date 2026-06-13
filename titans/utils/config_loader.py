@@ -1,0 +1,100 @@
+import yaml
+from pathlib import Path
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class BrainConfig(BaseModel):
+    provider: str = "ollama"    # "ollama" | "openai_compatible" | "anthropic" | "stub"
+    model: str = "qwen3:4b"
+    base_url: str = "http://localhost:11434"
+    temperature: float = 0.3
+    num_ctx: int = 4096
+    max_tokens: int = 2048      # 出力トークン上限（EOSで停止。空回答防止の安全網）
+    disable_thinking: bool = True  # qwen3 等の思考モデルに /no_think を注入
+    timeout: int = 180
+    api_key: str = ""           # openai_compatible 用（空ならダミー/環境変数）
+
+
+class RetrievalConfig(BaseModel):
+    enabled: bool = True
+    storage_dir: str = "./storage"
+    top_k: int = 6
+    embedder: str = "hashing"   # "hashing" (offline) | "ollama" (要 embedding モデル)
+    embedding_dim: int = 512
+    graph_enabled: bool = True
+    graph_max_hops: int = 2
+
+
+class MemoryConfig(BaseModel):
+    enabled: bool = True
+    provider: str = "local"     # "local" (JSON永続化) | "letta" (要Lettaサーバー)
+    storage_dir: str = "./storage"
+    top_k: int = 5
+    letta_base_url: str = "http://localhost:8283"
+    letta_agent_id: str = ""
+
+
+class MeetingConfig(BaseModel):
+    language: str = "ja"
+    verbose: bool = False
+    max_iter: int = 1
+
+
+class OutputConfig(BaseModel):
+    save_to_file: bool = True
+    output_dir: str = "./outputs"
+
+
+class AppConfig(BaseModel):
+    brain: BrainConfig = BrainConfig()
+    retrieval: RetrievalConfig = RetrievalConfig()
+    memory: MemoryConfig = MemoryConfig()
+    meeting: MeetingConfig = MeetingConfig()
+    output: OutputConfig = OutputConfig()
+
+
+def load_config(config_path: str = "config.yaml") -> AppConfig:
+    path = Path(config_path)
+    if not path.exists():
+        return AppConfig()
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    return AppConfig(**raw)
+
+
+def create_brain_provider(config: AppConfig):
+    """Factory returning the configured BrainProvider."""
+    if config.brain.provider == "ollama":
+        from titans.brain.ollama_provider import OllamaProvider
+        return OllamaProvider(
+            model=config.brain.model,
+            base_url=config.brain.base_url,
+            temperature=config.brain.temperature,
+            num_ctx=config.brain.num_ctx,
+            max_tokens=config.brain.max_tokens,
+            timeout=config.brain.timeout,
+        )
+    elif config.brain.provider == "openai_compatible":
+        from titans.brain.openai_compatible_provider import OpenAICompatibleProvider
+        return OpenAICompatibleProvider(
+            model=config.brain.model,
+            base_url=config.brain.base_url,
+            temperature=config.brain.temperature,
+            timeout=config.brain.timeout,
+            api_key=config.brain.api_key,
+        )
+    elif config.brain.provider == "anthropic":
+        from titans.brain.anthropic_provider import AnthropicProvider
+        return AnthropicProvider(
+            model=config.brain.model,
+            temperature=config.brain.temperature,
+            timeout=config.brain.timeout,
+        )
+    elif config.brain.provider == "stub":
+        from titans.brain.stub_provider import StubProvider
+        return StubProvider()
+    else:
+        raise ValueError(f"Unknown brain provider: {config.brain.provider}")
