@@ -115,7 +115,56 @@ Lettaサーバーを使う場合のみ `pip install letta-client` と Letta サ�
 | 取り込み/検索が遅い・重い | `embedder: hashing`（既定）はモデル不要で軽い。意味検索品質を上げたい時だけ `ollama` に |
 | telemetry のタイムアウト | `CREWAI_DISABLE_TELEMETRY=true`（`main.py` が自動設定済み） |
 
-## 使い方
+## REST API
+
+CLIの代わりにHTTP経由で呼び出せる。外部システム・スマホショートカット・n8n等から利用可能。
+
+```bash
+# サーバー起動
+python api.py --anthropic                      # Anthropic API (推奨・Ollama不要)
+python api.py --anthropic --model claude-sonnet-4-6
+python api.py                                  # Ollama (config.yaml の設定を使用)
+python api.py --host 0.0.0.0 --port 8000       # 外部公開する場合
+
+# 起動後、ブラウザで対話式ドキュメントを確認できる
+open http://localhost:8000/docs
+```
+
+### エンドポイント
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| `GET` | `/health` | 接続確認 |
+| `POST` | `/meeting` | 取締役会を開催（議題→5役員の審議結果） |
+| `GET` | `/memories` | 長期記憶を一覧表示 |
+| `POST` | `/memories` | 長期記憶に追加 |
+| `POST` | `/ingest` | 知識ディレクトリを取り込む |
+
+### 呼び出し例
+
+```bash
+# 取締役会を開催する
+curl -X POST http://localhost:8000/meeting \
+     -H "Content-Type: application/json" \
+     -d '{"agenda": "新規事業としてAI医療診断支援サービスを展開したい"}'
+```
+
+```python
+import requests
+
+r = requests.post(
+    "http://localhost:8000/meeting",
+    json={"agenda": "新規事業としてAI医療診断支援サービスを展開したい"},
+    timeout=300,   # 1〜2分かかるため長めに設定
+)
+result = r.json()
+print(result["ceo_final"])   # CEO最終判断
+# result["cfo"] / result["clo"] / result["ceo_draft"] / result["auditor"] も利用可能
+```
+
+レスポンスは `{"agenda", "cfo", "clo", "ceo_draft", "auditor", "ceo_final", "saved_to"}` の JSON。
+
+## 使い方（CLI）
 
 ```bash
 # 1. 知識ベースに取り込む（.txt/.md と関係グラフ記法を含む）
