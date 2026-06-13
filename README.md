@@ -1,194 +1,454 @@
 # Titans Board v2.0
 
-AIエグゼクティブ取締役会（CFO / CLO / CEO / 監査役）が、検索拡張と長期記憶を使って経営課題を多角的に審議し、最終レポートを出力するシステム。
+AI executive board system. Four agents (CFO / CLO / CEO / Auditor) share a single LLM instance ("One Brain"), deliberate on a management agenda using RAG retrieval and long-term memory, and produce a final board report.
 
-## 設計思想
+---
 
-1. **脳は1つだけ** — 全エージェントが単一のLLMインスタンスを共有する
-2. **人格は複数** — システムプロンプト（role + backstory）で人格を切り替える
-3. **記憶と知識は分離** — 長期記憶（Letta/ローカル）と検索知識（Qdrant/BM25/Graph）を分ける
-4. **モデルは交換可能** — `BrainProvider` 抽象でOllama/Anthropic/将来のSSMを差し替える
-5. **Retrieval First** — 会議の前に関連知識と長期記憶を取得してコンテキストを構築する
+## Table of Contents
 
-## アーキテクチャ
+1. [Architecture](#architecture)
+2. [Directory Structure](#directory-structure)
+3. [Configuration Reference](#configuration-reference)
+4. [CLI Reference](#cli-reference)
+5. [REST API Reference](#rest-api-reference)
+6. [Brain Providers](#brain-providers)
+7. [Retrieval Layer](#retrieval-layer)
+8. [Memory System](#memory-system)
+9. [Knowledge Graph Notation](#knowledge-graph-notation)
+10. [Setup & Running](#setup--running)
+11. [Testing](#testing)
+12. [Known Issues & Constraints](#known-issues--constraints)
+13. [Phase 5: TTT-Mamba](#phase-5-ttt-mamba)
+
+---
+
+## Architecture
+
+### Core Principle: One Brain
+
+All four CrewAI agents share **the same `crewai.LLM` Python object**. Persona switching is achieved purely through each agent's `role` + `backstory` (injected as the SystemMessage by CrewAI). There is exactly one model instance in memory at runtime.
+
+```
+config.yaml
+  └─ create_brain_provider()  →  OllamaProvider / AnthropicProvider / ...
+       └─ provider.get_llm()  →  crewai.LLM  (singleton, cached)
+            ├─ Agent(role="CFO ...",      llm=shared_llm)
+            ├─ Agent(role="CLO ...",      llm=shared_llm)
+            ├─ Agent(role="CEO ...",      llm=shared_llm)
+            └─ Agent(role="Auditor ...", llm=shared_llm)
+```
+
+### Execution Flow (CrewAI Flow)
 
 ```
 User Input
    │
    ▼
-prepare_context  ── Memory Loader（長期記憶）+ Retrieval Merger（RAG）
+prepare_context (@start)
+   ├─ MemoryStore.load_context()      → long_term_memory  (always includes 禁止事項/経営方針)
+   └─ KnowledgeBase.retrieve_as_text() → retrieved_knowledge (Qdrant+BM25+Graph → RRF)
    │
    ▼
-取締役会（CrewAI Flow / Sequential）
-   CFO ─→ CLO ─→ CEO草稿 ─→ 監査役 ─→ CEO最終
-   （全員が同一の共有LLMを使い、人格のみ切替）
+kickoff_meeting (@listen)
+   CFO task  (context: none)
+   CLO task  (context: [CFO])
+   CEO draft (context: [CFO, CLO])
+   Auditor   (context: [CFO, CLO, CEO draft])
+   CEO final (context: [CFO, CLO, CEO draft, Auditor])
    │
    ▼
-on_meeting_complete  ── CEO最終判断を「過去意思決定」として長期記憶へ書き戻し
+on_meeting_complete (@listen)
+   └─ Writes CEO final decision → MemoryStore as category "過去意思決定"
    │
    ▼
-Final Report（Rich表示 + JSON保存）
+MeetingReport  (Rich console panels + JSON saved to ./outputs/)
 ```
 
-### Retrieval Layer（`knowledge = merge(qdrant, graph, bm25)`）
+Context chains are **explicit** (`Task.context=[...]`). CrewAI's auto-chaining only passes the immediately prior task; explicit chains are required so the Auditor sees all three prior outputs.
 
-| STEP | 実装 | 用途 |
-|------|------|------|
-| STEP1 意味検索 | Qdrant（ローカルモード、サーバー不要） | 類似案件・意味的に近い知識 |
-| STEP2 関係性探索 | GraphRetriever（多段ホップ） | 顧客→契約→法令→売上 の関係連鎖 |
-| STEP3 キーワード | BM25 | 法律条文・会計科目・契約番号の厳密一致 |
+---
 
-3系統の結果は Reciprocal Rank Fusion で統合される。
-
-## ディレクトリ構成
+## Directory Structure
 
 ```
-titans/
-├── brain/       # BrainProvider 抽象 + Ollama / Anthropic / Stub 実装
-├── personas/    # 各エージェントの人格定義（YAML）
-├── agents/      # 共有LLMを使うCrewAIエージェント生成
-├── tasks/       # 5タスクの会議パイプライン（context連鎖）
-├── flows/       # BoardMeetingFlow（CrewAI Flow オーケストレーション）
-├── retrieval/   # Qdrant / BM25 / GraphRAG / RRF統合 / 埋め込み / 取り込み
-├── memory/      # MemoryStore 抽象 + ローカルJSON / Letta 実装
-├── report/      # Rich レポート描画 + JSON保存
-└── utils/       # 設定ロード + Context Builder
-knowledge/       # サンプル知識（.md/.txt と関係グラフ記法）
-tests/           # 40+ のユニット / E2E テスト
+titans-board/
+├── main.py                    # CLI entry point (click). All flags documented in CLI Reference.
+├── api.py                     # FastAPI REST server. All endpoints documented in API Reference.
+├── config.yaml                # Runtime configuration. All keys documented in Config Reference.
+├── requirements.txt           # Pinned deps. crewai==1.14.6 MUST stay pinned (see Constraints).
+├── .env.example               # Environment variable template.
+├── colab_quickstart.ipynb     # Google Colab notebook. Path A = Anthropic API, Path B = Ollama.
+├── knowledge/                 # Sample knowledge files for --ingest.
+│   ├── company_policy.md
+│   ├── legal_notes.md
+│   └── relations.md           # Contains graph triples: A -[rel]-> B notation.
+├── titans/
+│   ├── brain/
+│   │   ├── base.py            # BrainProvider ABC: get_llm() → LLM, health_check(), model_info()
+│   │   ├── ollama_provider.py # OllamaProvider. Uses extra_body={"options":{"num_ctx":N}} (NOT extra_params).
+│   │   ├── anthropic_provider.py  # AnthropicProvider. model="anthropic/<model>".
+│   │   ├── openai_compatible_provider.py  # Phase 5. model="hosted_vllm/<model>" prefix required.
+│   │   └── stub_provider.py   # No-op for tests. health_check() always False.
+│   ├── personas/
+│   │   ├── cfo.yaml           # role / goal / backstory / output_format
+│   │   ├── clo.yaml
+│   │   ├── ceo.yaml
+│   │   └── auditor.yaml
+│   ├── agents/
+│   │   └── board_agents.py    # create_board_agents(shared_llm, config) → dict[str, Agent]
+│   ├── tasks/
+│   │   └── board_tasks.py     # create_board_tasks(...) → list[Task] with explicit context chains.
+│   │                          # Injects model_directive ("/no_think" for qwen3) per task.
+│   ├── flows/
+│   │   └── board_meeting_flow.py  # BoardMeetingFlow(Flow[MeetingState]). 3 @start/@listen steps.
+│   ├── retrieval/
+│   │   ├── base.py            # RetrievedChunk, Retriever ABC, tokenize() (CJK + ASCII, zero deps)
+│   │   ├── embedder.py        # HashingEmbedder (offline, dim=512), OllamaEmbedder (auto-detects dim)
+│   │   ├── qdrant_store.py    # QdrantRetriever. Local in-process mode (no server). Auto-recreates
+│   │   │                      # collection on embedder dimension mismatch.
+│   │   ├── bm25_store.py      # BM25Retriever. JSON persistence. Uses tokenize().
+│   │   ├── graph_store.py     # GraphRetriever. Parses "A -[rel]-> B" triples. DFS bidirectional
+│   │   │                      # multi-hop. Returns maximal paths only.
+│   │   ├── merger.py          # reciprocal_rank_fusion(result_lists, top_k, k=60)
+│   │   ├── ingest.py          # load_directory(): reads .txt/.md, chunks by paragraph
+│   │   └── knowledge_base.py  # KnowledgeBase facade: ingest_directory(), retrieve_as_text(), count()
+│   ├── memory/
+│   │   ├── base.py            # MemoryEntry, MemoryStore ABC, CATEGORIES, ALWAYS_INCLUDE
+│   │   ├── local_store.py     # LocalMemoryStore: JSON at storage_dir/memory.json. load_context()
+│   │   │                      # always includes 禁止事項+経営方針; ranks others by token overlap.
+│   │   ├── letta_store.py     # LettaMemoryStore: agents.passages.create/list (lazy import).
+│   │   └── __init__.py        # create_memory_store(config), exports CATEGORIES, MemoryEntry
+│   ├── report/
+│   │   └── renderer.py        # MeetingReport dataclass + ReportRenderer (Rich panels + JSON save)
+│   └── utils/
+│       ├── config_loader.py   # AppConfig (pydantic), load_config(), create_brain_provider()
+│       └── context_builder.py # ContextComponents dataclass + build_task_description()
+│                              # assembles [LTM] + [Knowledge] + [Input] + [Task]
+├── tests/
+│   ├── conftest.py            # Sets CREWAI_DISABLE_TELEMETRY=true, OTEL_SDK_DISABLED=true
+│   ├── test_brain.py          # BrainProvider tests incl. Phase 5 OpenAI-compatible
+│   ├── test_agents.py         # One-brain singleton assertion
+│   ├── test_flow.py           # E2E flow with mocked LLM
+│   ├── test_graph.py          # GraphRetriever: parse, search, multi-hop
+│   ├── test_memory.py         # MemoryStore: remember, load_context, write-back
+│   └── test_retrieval.py      # Qdrant, BM25, merger, embedder
+└── outputs/                   # Auto-created. meeting_YYYYMMDD_HHMMSS.json saved here.
 ```
 
-## ローカル環境構築（Phase 1〜4）
+---
 
-検証環境: Python 3.11 / Linux・macOS。GPUは無くてもCPUで動く（Qwen3-4Bは応答が遅くなる程度）。
+## Configuration Reference
 
-### 1. リポジトリと Python 仮想環境
+File: `config.yaml`
 
+### `brain` section
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `provider` | str | `"ollama"` | `"ollama"` \| `"anthropic"` \| `"openai_compatible"` \| `"stub"` |
+| `model` | str | `"qwen3:4b"` | Ollama tag, `claude-*` for anthropic, or model name for openai_compatible |
+| `base_url` | str | `"http://localhost:11434"` | Ollama / OpenAI-compatible server URL |
+| `temperature` | float | `0.3` | LLM temperature |
+| `num_ctx` | int | `4096` | Ollama KV cache context window (affects inference speed) |
+| `max_tokens` | int | `2048` | Max output tokens per LLM call. EOS stops generation early; this is a safety cap. |
+| `disable_thinking` | bool | `true` | Inject `/no_think` directive for qwen3 models to suppress chain-of-thought tokens |
+| `timeout` | int | `180` | LLM call timeout in seconds |
+| `api_key` | str | `""` | openai_compatible only. Falls back to env `TITANS_LLM_API_KEY`, then `"not-needed"` |
+
+### `retrieval` section
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable RAG retrieval |
+| `storage_dir` | str | `"./storage"` | Directory for Qdrant and BM25 persistence |
+| `top_k` | int | `3` | Number of chunks to inject per meeting |
+| `embedder` | str | `"hashing"` | `"hashing"` (offline, lexical) \| `"ollama"` (requires nomic-embed-text or similar) |
+| `embedding_dim` | int | `512` | Vector dimension for hashing embedder. OllamaEmbedder auto-detects and ignores this. |
+| `graph_enabled` | bool | `true` | Enable GraphRAG relationship traversal |
+| `graph_max_hops` | int | `2` | Maximum hops in graph DFS |
+
+### `memory` section
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Enable long-term memory injection |
+| `provider` | str | `"local"` | `"local"` (JSON file) \| `"letta"` (requires letta-client + Letta server) |
+| `storage_dir` | str | `"./storage"` | Directory for memory.json |
+| `top_k` | int | `5` | Max memory entries to inject (禁止事項/経営方針 always injected regardless) |
+| `letta_base_url` | str | `"http://localhost:8283"` | Letta server URL (letta provider only) |
+| `letta_agent_id` | str | `""` | Letta agent ID (letta provider only) |
+
+### `meeting` section
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `language` | str | `"ja"` | Output language hint |
+| `verbose` | bool | `false` | Enable CrewAI verbose task logs |
+| `max_iter` | int | `1` | Max CrewAI agent retry iterations. Keep at 1 to prevent 3x slowdown from retry loops. |
+
+### `output` section
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `save_to_file` | bool | `true` | Save JSON report to output_dir |
+| `output_dir` | str | `"./outputs"` | Output directory |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Required for `brain.provider: anthropic` |
+| `TITANS_LLM_API_KEY` | API key for openai_compatible provider (optional for local servers) |
+| `OLLAMA_BASE_URL` | Overrides `brain.base_url` for Ollama |
+| `TITANS_PROVIDER` | Runtime override for `brain.provider` (used by api.py `--anthropic` flag) |
+| `TITANS_MODEL` | Runtime override for `brain.model` |
+| `CREWAI_DISABLE_TELEMETRY` | Set to `"true"` to prevent 30s telemetry timeout (auto-set by main.py) |
+| `OTEL_SDK_DISABLED` | Set to `"true"` alongside above (auto-set by main.py) |
+
+---
+
+## CLI Reference
+
+Entry point: `python main.py`
+
+```
+python main.py [OPTIONS] [USER_INPUT]
+```
+
+| Flag | Description |
+|------|-------------|
+| `"<agenda>"` | Run board meeting with this agenda string |
+| `--anthropic` | Switch to Anthropic API without editing config.yaml. Defaults to claude-haiku-4-5-20251001. |
+| `--model <id>` | Override brain.model at runtime (e.g. `--model claude-sonnet-4-6`) |
+| `--health-check` | Check LLM connectivity and print model info. Exit 0 = OK, 1 = FAIL. |
+| `--ingest <dir>` | Ingest all .txt/.md files in directory into RAG stores and exit |
+| `--remember <text>` | Add one entry to long-term memory and exit |
+| `--category <cat>` | Category for --remember. One of: `ユーザー嗜好` `経営方針` `過去意思決定` `禁止事項` `顧客情報` |
+| `--memories` | List all long-term memory entries and exit |
+| `--no-rag` | Disable RAG retrieval for this run |
+| `--no-memory` | Disable long-term memory for this run |
+| `--verbose` | Enable CrewAI verbose task execution logs |
+| `--no-save` | Do not save JSON output to file |
+| `--config <path>` | Path to config.yaml (default: `config.yaml`) |
+
+---
+
+## REST API Reference
+
+Entry point: `python api.py`
+
+```
+python api.py [--host 127.0.0.1] [--port 8000] [--anthropic] [--model <id>]
+```
+
+Interactive docs available at `http://localhost:8000/docs` after startup.
+
+---
+
+### `GET /health`
+
+Check LLM connectivity.
+
+**Response**
+```json
+{
+  "status": "ok",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5-20251001"
+}
+```
+
+---
+
+### `POST /meeting`
+
+Run a board meeting. Blocking; takes 1–4 minutes depending on model.
+
+**Request**
+```json
+{
+  "agenda": "string (required)",
+  "no_rag": false,
+  "no_memory": false
+}
+```
+
+**Response**
+```json
+{
+  "agenda": "string",
+  "cfo": "CFO financial analysis (markdown)",
+  "clo": "CLO legal review (markdown)",
+  "ceo_draft": "CEO strategy draft (markdown)",
+  "auditor": "Auditor review + revision instructions (markdown)",
+  "ceo_final": "CEO final decision (markdown)",
+  "retrieved_knowledge": "RAG chunks that were injected (may be empty)",
+  "long_term_memory": "Memory entries that were injected (may be empty)",
+  "saved_to": "./outputs/meeting_YYYYMMDD_HHMMSS.json or null"
+}
+```
+
+**Example**
 ```bash
-git clone <this-repo>
-cd Stock_Tracker-657
-
-python3.11 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 2. Ollama 本体のインストールと起動
-
-```bash
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh
-# macOS: https://ollama.com/download から Ollama.app を入れる（brew install ollama も可）
-
-# サーバーを起動（別ターミナルで起動したままにする。macOSアプリ版は自動起動）
-ollama serve
-```
-
-### 3. モデルの取得
-
-```bash
-ollama pull qwen3:4b                # 取締役会の推論モデル（必須・約2.4GB）
-ollama pull nomic-embed-text        # 意味検索を本物にする埋め込みモデル（任意・推奨）
-```
-
-`nomic-embed-text` を入れる場合は `config.yaml` の `retrieval.embedder` を `ollama` に変更する。
-入れない場合は既定の `hashing`（オフライン・字句ベース）のまま動作する。
-
-### 4. 接続確認
-
-```bash
-python main.py --health-check       # Status: OK が出れば準備完了
-```
-
-### 5. （任意）Letta 長期記憶サーバー
-
-既定の長期記憶はローカルJSON（`storage/memory.json`）で完結するため不要。
-Lettaサーバーを使う場合のみ `pip install letta-client` と Letta サーバーを用意し、
-`config.yaml` の `memory.provider` を `letta` にして `letta_base_url` / `letta_agent_id` を設定する。
-
-### トラブルシュート
-
-| 症状 | 対処 |
-|------|------|
-| `--health-check` が FAIL | `ollama serve` が起動しているか、`base_url` が合っているか確認 |
-| 会議が `model not found` | `ollama pull qwen3:4b` を実行したか確認 |
-| 取り込み/検索が遅い・重い | `embedder: hashing`（既定）はモデル不要で軽い。意味検索品質を上げたい時だけ `ollama` に |
-| telemetry のタイムアウト | `CREWAI_DISABLE_TELEMETRY=true`（`main.py` が自動設定済み） |
-
-## REST API
-
-CLIの代わりにHTTP経由で呼び出せる。外部システム・スマホショートカット・n8n等から利用可能。
-
-```bash
-# サーバー起動
-python api.py --anthropic                      # Anthropic API (推奨・Ollama不要)
-python api.py --anthropic --model claude-sonnet-4-6
-python api.py                                  # Ollama (config.yaml の設定を使用)
-python api.py --host 0.0.0.0 --port 8000       # 外部公開する場合
-
-# 起動後、ブラウザで対話式ドキュメントを確認できる
-open http://localhost:8000/docs
-```
-
-### エンドポイント
-
-| メソッド | パス | 説明 |
-|---------|------|------|
-| `GET` | `/health` | 接続確認 |
-| `POST` | `/meeting` | 取締役会を開催（議題→5役員の審議結果） |
-| `GET` | `/memories` | 長期記憶を一覧表示 |
-| `POST` | `/memories` | 長期記憶に追加 |
-| `POST` | `/ingest` | 知識ディレクトリを取り込む |
-
-### 呼び出し例
-
-```bash
-# 取締役会を開催する
 curl -X POST http://localhost:8000/meeting \
      -H "Content-Type: application/json" \
-     -d '{"agenda": "新規事業としてAI医療診断支援サービスを展開したい"}'
+     -d '{"agenda": "AI医療診断支援サービスを日本市場で展開したい。初期投資5億円、3年ROI。"}' \
+     --max-time 300
 ```
 
 ```python
 import requests
-
-r = requests.post(
-    "http://localhost:8000/meeting",
-    json={"agenda": "新規事業としてAI医療診断支援サービスを展開したい"},
-    timeout=300,   # 1〜2分かかるため長めに設定
-)
-result = r.json()
-print(result["ceo_final"])   # CEO最終判断
-# result["cfo"] / result["clo"] / result["ceo_draft"] / result["auditor"] も利用可能
+r = requests.post("http://localhost:8000/meeting",
+                  json={"agenda": "..."}, timeout=300)
+print(r.json()["ceo_final"])
 ```
 
-レスポンスは `{"agenda", "cfo", "clo", "ceo_draft", "auditor", "ceo_final", "saved_to"}` の JSON。
+---
 
-## 使い方（CLI）
+### `GET /memories`
 
-```bash
-# 1. 知識ベースに取り込む（.txt/.md と関係グラフ記法を含む）
-python main.py --ingest ./knowledge
+List all long-term memory entries.
 
-# 2. 長期記憶に方針・禁止事項を登録する
-python main.py --remember "ギャンブル・アダルト関連事業への参入禁止" --category 禁止事項
-python main.py --memories            # 登録済みの記憶を一覧表示
-
-# 3. 取締役会を開催する
-python main.py "新規事業として、AIを活用した医療診断支援サービスを日本市場で展開したい。初期投資5億円、3年でのROI達成が目標。取締役会の判断を仰ぎたい。"
-
-# その他
-python main.py --health-check        # Ollama 接続確認
-python main.py --no-rag "課題"       # RAG検索を無効化
-python main.py --no-memory "課題"    # 長期記憶を無効化
-python main.py --verbose "課題"      # CrewAI の詳細ログ
+**Response**
+```json
+[
+  {
+    "category": "禁止事項",
+    "content": "ギャンブル・アダルト関連事業への参入禁止",
+    "timestamp": "2026-06-13T00:00:00"
+  }
+]
 ```
 
-出力は5つのパネル（CFO財務分析 → CLO法務 → CEO草稿 → 監査役 → CEO最終）で表示され、`./outputs/meeting_*.json` に保存される。
+---
 
-## 関係グラフの記法
+### `POST /memories`
 
-知識ファイルの中に、通常の文章と混在させて1行ずつ記述する（記法行のみがグラフに取り込まれる）。
+Add a long-term memory entry.
+
+**Request**
+```json
+{
+  "content": "string (required)",
+  "category": "経営方針"
+}
+```
+
+Valid categories: `ユーザー嗜好` `経営方針` `過去意思決定` `禁止事項` `顧客情報`
+
+**Response** (201)
+```json
+{ "added": true, "total": 3 }
+```
+
+---
+
+### `POST /ingest`
+
+Ingest a knowledge directory into RAG stores.
+
+**Request**
+```json
+{ "directory": "./knowledge" }
+```
+
+**Response**
+```json
+{
+  "chunks_ingested": 42,
+  "qdrant": 42,
+  "bm25": 42,
+  "graph": 10
+}
+```
+
+---
+
+## Brain Providers
+
+### `ollama`
+- Uses `crewai.LLM(model="ollama/<model>", ...)`
+- Ollama-specific options (`num_ctx`, `num_predict`) passed via `extra_body={"options": {...}}` — NOT as top-level kwargs (causes `unexpected keyword argument` error)
+- Health check: `ollama.Client.list()`
+- Requires Ollama server running at `brain.base_url`
+
+### `anthropic`
+- Uses `crewai.LLM(model="anthropic/<model>", ...)`
+- Requires `ANTHROPIC_API_KEY` env var
+- No local server needed
+- Health check: verifies `ANTHROPIC_API_KEY` is set
+
+### `openai_compatible` (Phase 5)
+- Uses `crewai.LLM(model="hosted_vllm/<model>", base_url=..., ...)`
+- The `hosted_vllm/` prefix is in CrewAI's `SUPPORTED_NATIVE_PROVIDERS` and accepts any model name without litellm. Using `openai/<model>` fails with `ImportError: LiteLLM fallback not installed`.
+- The prefix is consumed by routing; `llm.model` stores the bare model name.
+- API key defaults to env `TITANS_LLM_API_KEY` or `"not-needed"` (most local servers don't validate)
+- Health check: HTTP GET `/v1/models` with Bearer token
+
+### `stub`
+- No-op for testing. `health_check()` always returns `False`.
+- Uses `LLM(model="ollama/stub", base_url="http://localhost:99999")` — never actually called
+
+---
+
+## Retrieval Layer
+
+Three retrievers merged via Reciprocal Rank Fusion (k=60).
+
+### STEP 1: Qdrant (semantic search)
+- Local in-process mode (`QdrantClient(path=...)`) — no server process required
+- Collection created at init with `embedder.dim`
+- **Dimension mismatch handling**: if existing collection dim ≠ embedder.dim, collection is automatically deleted and recreated (e.g. switching from `hashing`→`ollama` embedder)
+
+### STEP 2: GraphRetriever (relationship traversal)
+- Parses `主体 -[関係]-> 客体` triples from ingested files (see [Knowledge Graph Notation](#knowledge-graph-notation))
+- DFS bidirectional multi-hop traversal up to `graph_max_hops`
+- Returns maximal paths only (sub-paths filtered out)
+- Enables chained lookups: `顧客 → 契約 → 法令 → 規制機関`
+
+### STEP 3: BM25 (keyword search)
+- `rank_bm25` library with custom `tokenize()` (CJK unigrams+bigrams + ASCII words, zero deps)
+- Persisted as JSON at `storage_dir/bm25_index.json`
+
+### Embedders
+
+| Kind | Description | When to use |
+|------|-------------|-------------|
+| `hashing` | Feature hashing (offline, deterministic, dim=512) | Default. No model needed. Lexical similarity only, not semantic. |
+| `ollama` | Calls Ollama embedding model. Auto-detects actual output dim. | When `nomic-embed-text` or similar is available. Provides true semantic search. |
+
+**OllamaEmbedder**: calls the model once at `__init__` to detect the true embedding dimension. This overrides `embedding_dim` from config, preventing shape mismatch errors (e.g. nomic-embed-text outputs 768 but config default is 512).
+
+---
+
+## Memory System
+
+### Categories
+
+```python
+CATEGORIES = ("ユーザー嗜好", "経営方針", "過去意思決定", "禁止事項", "顧客情報")
+ALWAYS_INCLUDE = ("禁止事項", "経営方針")
+```
+
+`ALWAYS_INCLUDE` categories are injected into every meeting regardless of `top_k` or relevance score.
+
+### `local` provider
+- Persists to `storage_dir/memory.json`
+- `load_context(query, top_k)`: always includes ALWAYS_INCLUDE entries, then ranks remaining by 2-char token overlap with query, returns top_k total
+
+### `letta` provider
+- Uses `letta_client.agents.passages.create/list`
+- Requires `pip install letta-client` and a running Letta server
+- Configure `memory.letta_base_url` and `memory.letta_agent_id`
+
+### Write-back
+After each meeting, `on_meeting_complete()` saves the CEO final decision to memory as `category="過去意思決定"`. This enables cross-meeting continuity.
+
+---
+
+## Knowledge Graph Notation
+
+Mixed into regular text files (.txt or .md). One triple per line. Only triple lines are parsed into the graph; prose is indexed by Qdrant and BM25.
 
 ```
 顧客メディカル社 -[締結]-> 診断支援SaaS利用契約
@@ -196,95 +456,163 @@ python main.py --verbose "課題"      # CrewAI の詳細ログ
 薬機法 -[所管]-> PMDA
 ```
 
-「顧客メディカル社」を尋ねると、ベクトル検索では届かない「薬機法」「PMDA」まで関係連鎖で辿る。
+Pattern: `<subject> -[<relation>]-> <object>`
 
-## 設定（`config.yaml`）
+Multi-hop example: querying "顧客メディカル社" traverses → 診断支援SaaS利用契約 → 薬機法 → PMDA, returning the full chain that vector search cannot reach.
 
-| セクション | 主なキー | 説明 |
-|-----------|---------|------|
-| `brain` | `provider` | `ollama` / `openai_compatible` / `anthropic` / `stub` |
-| | `model` | Ollamaモデルタグ、または `claude-...` |
-| `retrieval` | `embedder` | `hashing`（オフライン）/ `ollama`（要embeddingモデル） |
-| | `graph_enabled`, `graph_max_hops` | GraphRAGの有効化とホップ数 |
-| `memory` | `provider` | `local`（JSON永続化）/ `letta`（要Lettaサーバー） |
+---
 
-### モデル交換
+## Setup & Running
 
-`brain.provider` を切り替えるだけでバックエンドを差し替えられる。Ollamaが使えない環境では `anthropic` を選び、`.env` に `ANTHROPIC_API_KEY` を設定する。
+### Requirements
 
-```yaml
-brain:
-  provider: anthropic
-  model: claude-sonnet-4-6
-```
+- Python 3.11+
+- For Ollama provider: Ollama server + `ollama pull qwen3:4b`
+- For Anthropic provider: `ANTHROPIC_API_KEY`
 
-## 開発フェーズ
-
-- [x] **Phase 1** — 取締役会（Ollama + Qwen3-4B + CrewAI）
-- [x] **Phase 2** — RAG統合（Qdrant + BM25 + RRF）
-- [x] **Phase 3** — 長期記憶（Memory Loader + 書き戻し / Lettaアダプタ）
-- [x] **Phase 4** — 企業知識グラフ（GraphRAG 関係性探索）
-- [~] **Phase 5** — 共有SSM脳（TTT-Mamba）への置換 ※接続層は実装済み・モデル差し込み待ち
-
-## Phase 5: 共有SSM脳（TTT-Mamba）への置換
-
-設計思想「モデルは交換可能」により、**アプリ側のコード変更はゼロ**で、
-`config.yaml` の `brain` セクションを切り替えるだけでモデルを差し替えられる。
-難所は「TTT-Mamba をどう推論可能にするか」という外部のモデル準備に集約される。
-
-### ルートA: GGUF を入手して Ollama に登録（最も手軽）
-
-TTT-Mamba の GGUF が手に入る場合、新規コードは不要。
+### Local (recommended)
 
 ```bash
-# Modelfile を用意（例）
-cat > Modelfile <<'EOT'
+git clone https://github.com/nori1234/Stock_Tracker-657.git
+cd Stock_Tracker-657
+
+python3.11 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# Anthropic (no Ollama needed)
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+python main.py --anthropic --health-check
+python main.py --anthropic "経営課題をここに入力"
+
+# OR: Ollama
+ollama serve   # in a separate terminal
+ollama pull qwen3:4b
+python main.py --health-check
+python main.py "経営課題をここに入力"
+
+# API server
+python api.py --anthropic
+# → http://localhost:8000/docs
+```
+
+### Google Colab
+
+Open the quickstart notebook (includes Path A: Anthropic API and Path B: Ollama):
+
+`https://colab.research.google.com/github/nori1234/Stock_Tracker-657/blob/main/colab_quickstart.ipynb`
+
+**Path A (Anthropic) is recommended** — no model download, no GPU needed, session resets don't matter.
+
+### Optional: nomic-embed-text (semantic search upgrade)
+
+```bash
+ollama pull nomic-embed-text
+# Then in config.yaml:
+#   retrieval.embedder: ollama
+# OllamaEmbedder auto-detects the 768-dim output; no other changes needed.
+```
+
+### Optional: Letta long-term memory
+
+```bash
+pip install letta-client
+# Start Letta server, then in config.yaml:
+#   memory.provider: letta
+#   memory.letta_base_url: http://localhost:8283
+#   memory.letta_agent_id: <your-agent-id>
+```
+
+---
+
+## Testing
+
+```bash
+python -m pytest tests/ -q
+# 44 tests, all offline (stub LLM + hashing embedder). No model download required.
+```
+
+Tests cover: brain providers, agent singleton (One Brain), flow E2E with mocked LLM, graph retrieval, memory store, BM25/Qdrant retrieval.
+
+---
+
+## Known Issues & Constraints
+
+### crewai must be pinned to ==1.14.6
+
+`requirements.txt` pins `crewai==1.14.6`. Do not upgrade without full regression testing. Newer versions (observed on Colab) have a different internal module path (`crewai/flow/runtime.py` vs `crewai/flow/flow.py`) and produce `Invalid response from LLM call - None or empty` errors.
+
+### qwen3 thinking tokens
+
+qwen3 models emit `<think>...</think>` reasoning tokens by default before their answer. If `max_tokens` truncates output mid-think, the answer portion is empty, causing CrewAI to raise `ValueError: Invalid response from LLM call - None or empty`.
+
+Fix (already applied): `board_tasks.py` appends `/no_think` to every task description when `brain.model` contains `"qwen3"` and `brain.disable_thinking: true`. This is a qwen3 chat-template soft switch, not an API parameter.
+
+### OllamaProvider num_ctx must use extra_body
+
+crewai 1.14.6 routes `ollama/*` through an OpenAI-compatible client. Passing `num_ctx` as a top-level LLM kwarg raises `unexpected keyword argument 'num_ctx'`. It must be passed as:
+```python
+LLM(..., extra_body={"options": {"num_ctx": N, "num_predict": M}})
+```
+
+### openai_compatible requires hosted_vllm/ prefix
+
+Using `openai/<model>` fails with `ImportError: LiteLLM fallback not installed`. Use `hosted_vllm/<model>` which is in `SUPPORTED_NATIVE_PROVIDERS` and accepts any model name. The prefix is consumed by routing; `llm.model` stores the bare name.
+
+### Telemetry timeout
+
+CrewAI's telemetry client blocks for ~30s on network-restricted environments. `main.py` sets `CREWAI_DISABLE_TELEMETRY=true` and `OTEL_SDK_DISABLED=true` at module top. `tests/conftest.py` does the same for the test suite.
+
+### Qdrant dimension mismatch on embedder switch
+
+Switching from `hashing` (512-dim) to `ollama` (768-dim for nomic-embed-text) without clearing storage causes `ValueError: shapes (0,512) and (768,) not aligned`. Fixed: `QdrantRetriever.__init__` checks the existing collection's dimension against `embedder.dim` and recreates the collection if they differ.
+
+---
+
+## Phase 5: TTT-Mamba
+
+The `openai_compatible` brain provider is the intended connection layer for TTT-Mamba or any future SSM model. **No application code changes are needed** — only `config.yaml` needs updating.
+
+### Route A: GGUF via Ollama
+
+```bash
+cat > Modelfile <<'EOF'
 FROM ./ttt-mamba-3b.gguf
 PARAMETER temperature 0.3
 PARAMETER num_ctx 8192
-EOT
-
+EOF
 ollama create ttt-mamba -f Modelfile
+# config.yaml: provider: ollama, model: ttt-mamba
 ```
 
-`config.yaml` は `provider: ollama` のまま `model: ttt-mamba` にするだけ。
-
-### ルートB: vLLM / llama.cpp server で OpenAI 互換配信
-
-GGUF以外の重み（HF形式など）や、より高速な推論をしたい場合。
+### Route B: vLLM / llama.cpp server
 
 ```bash
-# 例: vLLM で OpenAI 互換サーバーを起動
-vllm serve <ttt-mamba-model-path> --port 8000
-# あるいは llama.cpp: ./llama-server -m ttt-mamba.gguf --port 8000
+vllm serve <model-path> --port 8000
+# or: ./llama-server -m ttt-mamba.gguf --port 8000
 ```
-
-`config.yaml`:
 
 ```yaml
 brain:
   provider: openai_compatible
-  model: ttt-mamba-3b           # サーバーが公開するモデル名
+  model: ttt-mamba-3b
   base_url: http://localhost:8000/v1
 ```
 
-接続層（`OpenAICompatibleProvider`）は実装・テスト済みで、認証が要るサーバーは
-`.env` の `TITANS_LLM_API_KEY` で対応する。確認は `python main.py --health-check`。
+**Current status**: TTT-Mamba has no stable distribution format (no `ollama pull`, no standard GGUF release). The connection layer is implemented and tested. Model weights and quantization are the user's responsibility.
 
-### 現状の注意
+---
 
-TTT-Mamba は研究モデルで、`ollama pull` 一発で入る安定した配布形態がまだ無い。
-本リポジトリで用意済みなのは「モデルが手に入った後に差し込む接続層」までであり、
-モデル重み自体の入手・量子化は利用者側の作業になる。
+## Development Phases
 
-## テスト
+- [x] Phase 1 — Board meeting (Ollama + Qwen3-4B + CrewAI)
+- [x] Phase 2 — RAG (Qdrant + BM25 + RRF)
+- [x] Phase 3 — Long-term memory (LocalJSON + Letta adapter + write-back)
+- [x] Phase 4 — Knowledge graph (GraphRAG relationship traversal)
+- [x] Phase 5 — OpenAI-compatible connection layer for SSM/TTT-Mamba (model weights pending)
 
-```bash
-python -m pytest tests/ -q
-```
+---
 
-埋め込みとLLMを使わないオフライン経路（`hashing` embedder、`stub`/モックLLM）で全テストが完結するため、モデル未取得の環境でも実行できる。
-
-## ライセンス
+## License
 
 MIT
