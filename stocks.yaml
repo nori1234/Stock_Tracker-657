@@ -1,0 +1,36 @@
+# 株価通知の設定
+#
+# LINE Messaging API の push を使う (LINE Notify は 2025-03 で終了済み)。
+# 機密値 (トークン・送信先) は空のままにして環境変数で渡すのを推奨:
+#   LINE_CHANNEL_ACCESS_TOKEN, LINE_TO  (.env.example 参照)
+line:
+  channel_access_token: ""   # 空なら環境変数 LINE_CHANNEL_ACCESS_TOKEN
+  to: ""                     # 送信先 userId/groupId。空なら環境変数 LINE_TO
+
+# 監視銘柄。symbol は yfinance 形式:
+#   日本株 … 証券コード + ".T"  (例: 7203.T = トヨタ自動車)
+#   米国株 … ティッカー         (例: AAPL)
+#
+# conditions の type:
+#   price_above       現在値 >= value
+#   price_below       現在値 <= value
+#   change_pct_above  前日比(%) >= value
+#   change_pct_below  前日比(%) <= value
+watchlist:
+  - symbol: "7203.T"
+    name: "トヨタ自動車"
+    conditions:
+      - type: price_above
+        value: 3500
+      - type: price_below
+        value: 2500
+      - type: change_pct_below
+        value: -3
+
+  - symbol: "AAPL"
+    name: "Apple"
+    conditions:
+      - type: price_below
+        value: 180
+      - type: change_pct_above
+        value: 5
