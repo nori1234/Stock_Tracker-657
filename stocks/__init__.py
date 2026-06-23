@@ -13,6 +13,7 @@ from stocks.alerts import AlertHit, evaluate_alerts
 from stocks.analyst import StockAnalyst, BoardStockAnalyst, build_agenda
 from stocks.fetcher import StockFetcher
 from stocks.line_notifier import LineNotifier
+from stocks.state import AlertStateStore, hit_key
 from stocks.config import (
     StockConfig,
     WatchItem,
@@ -31,6 +32,8 @@ __all__ = [
     "build_agenda",
     "StockFetcher",
     "LineNotifier",
+    "AlertStateStore",
+    "hit_key",
     "StockConfig",
     "WatchItem",
     "AlertCondition",

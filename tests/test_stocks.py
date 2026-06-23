@@ -189,6 +189,88 @@ def test_run_once_analyst_failure_still_notifies():
     assert any("取締役会議論に失敗" in e for e in result.errors)
 
 
+# ── 重複抑制 (state store) ───────────────────────────────────────────────────
+
+from stocks.state import AlertStateStore, hit_key
+
+
+def _cfg_aapl_below_200():
+    return StockConfig(watchlist=[
+        WatchItem(symbol="AAPL", name="Apple",
+                  conditions=[AlertCondition(type="price_below", value=200)]),
+    ])
+
+
+def test_dedup_suppresses_second_run(tmp_path):
+    cfg = _cfg_aapl_below_200()
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    state_path = str(tmp_path / "state.json")
+
+    # 1 回目: 新規成立 → 通知される
+    n1 = FakeNotifier()
+    r1 = run_once(cfg, fetcher=fetcher, notifier=n1, state_store=AlertStateStore(state_path))
+    assert r1.notified is True
+    assert len(n1.sent) == 1
+
+    # 2 回目: 同じ条件が成立し続けている → 抑制され通知されない
+    n2 = FakeNotifier()
+    r2 = run_once(cfg, fetcher=fetcher, notifier=n2, state_store=AlertStateStore(state_path))
+    assert r2.notified is False
+    assert n2.sent == []
+    assert r2.suppressed == 1
+
+
+def test_dedup_rearms_after_condition_clears(tmp_path):
+    cfg = _cfg_aapl_below_200()
+    state_path = str(tmp_path / "state.json")
+
+    # 1 回目: 150 < 200 で成立 → 通知
+    n1 = FakeNotifier()
+    run_once(cfg, fetcher=FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")]),
+             notifier=n1, state_store=AlertStateStore(state_path))
+    assert len(n1.sent) == 1
+
+    # 2 回目: 250 で条件外れる → 通知なし、状態は再武装
+    n2 = FakeNotifier()
+    run_once(cfg, fetcher=FakeFetcher([StockQuote("AAPL", "Apple", 250.0, 240.0, "USD")]),
+             notifier=n2, state_store=AlertStateStore(state_path))
+    assert n2.sent == []
+
+    # 3 回目: 再び 150 < 200 → 再武装済みなので再通知される
+    n3 = FakeNotifier()
+    r3 = run_once(cfg, fetcher=FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")]),
+                  notifier=n3, state_store=AlertStateStore(state_path))
+    assert r3.notified is True
+    assert len(n3.sent) == 1
+
+
+def test_dedup_dry_run_does_not_persist(tmp_path):
+    cfg = _cfg_aapl_below_200()
+    state_path = str(tmp_path / "state.json")
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+
+    run_once(cfg, fetcher=fetcher, state_store=AlertStateStore(state_path), dry_run=True)
+
+    # dry-run では状態ファイルを書かない → 次の本番実行でちゃんと通知される
+    n = FakeNotifier()
+    r = run_once(cfg, fetcher=fetcher, notifier=n, state_store=AlertStateStore(state_path))
+    assert r.notified is True
+    assert len(n.sent) == 1
+
+
+def test_state_store_handles_corrupt_file(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text("not valid json{", encoding="utf-8")
+    store = AlertStateStore(str(p))
+    assert store.active == set()
+
+
+def test_hit_key_stable():
+    q = StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")
+    hits = evaluate_alerts(q, [AlertCondition(type="price_below", value=200)])
+    assert hit_key(hits[0]) == "AAPL|price_below|200.0"
+
+
 # ── LINE notifier ────────────────────────────────────────────────────────────
 
 class FakeResponse:

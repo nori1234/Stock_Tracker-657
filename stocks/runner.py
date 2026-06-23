@@ -15,14 +15,17 @@ from stocks.config import StockConfig
 from stocks.fetcher import StockFetchError, StockFetcher
 from stocks.line_notifier import LineNotifier
 from stocks.models import StockQuote
+from stocks.state import AlertStateStore
 
 
 @dataclass
 class RunResult:
     quotes: List[StockQuote] = field(default_factory=list)
-    hits: List[AlertHit] = field(default_factory=list)
+    fired_hits: List[AlertHit] = field(default_factory=list)   # 今回成立した全条件
+    hits: List[AlertHit] = field(default_factory=list)         # うち実際に通知する分 (重複抑制後)
     analyses: Dict[str, str] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
+    suppressed: int = 0                                        # 重複として抑制した件数
     notified: bool = False
     message: str = ""
 
@@ -62,13 +65,15 @@ def run_once(
     fetcher: Optional[StockFetcher] = None,
     notifier: Optional[LineNotifier] = None,
     analyst: Optional[StockAnalyst] = None,
+    state_store: Optional[AlertStateStore] = None,
     dry_run: bool = False,
 ) -> RunResult:
     """ウォッチリストを 1 回評価し、条件成立があれば通知する。
 
     fetcher / notifier を渡さなければ実物 (yfinance / LINE API) を使う。
     analyst を渡すと、発火した銘柄ごとに AI 取締役会の見解を本文へ添える。
-    dry_run=True なら通知は行わず、組み立てた本文を RunResult.message に返す。
+    state_store を渡すと重複通知を抑制し、成立し続ける条件は再武装まで再送しない。
+    dry_run=True なら通知も状態更新も行わず、組み立てた本文を RunResult.message に返す。
     """
     fetcher = fetcher or StockFetcher()
     result = RunResult()
@@ -80,7 +85,16 @@ def run_once(
             result.errors.append(f"{item.symbol}: {e}")
             continue
         result.quotes.append(quote)
-        result.hits.extend(evaluate_alerts(quote, item.conditions))
+        result.fired_hits.extend(evaluate_alerts(quote, item.conditions))
+
+    # 重複抑制: 前回からアクティブな条件を除外し、状態を更新 (dry_run では更新しない)
+    if state_store is not None:
+        result.hits, active_keys = state_store.filter_new(result.fired_hits)
+        result.suppressed = len(result.fired_hits) - len(result.hits)
+        if not dry_run:
+            state_store.commit(active_keys)
+    else:
+        result.hits = list(result.fired_hits)
 
     if not result.hits:
         return result
