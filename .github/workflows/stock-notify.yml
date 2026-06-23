@@ -1,0 +1,57 @@
+name: Stock LINE Notify
+
+# 株価を定期取得し、条件成立時に LINE へ通知する。
+# LINE の認証情報はリポジトリの Secrets に登録すること:
+#   Settings → Secrets and variables → Actions
+#     LINE_CHANNEL_ACCESS_TOKEN
+#     LINE_TO
+on:
+  schedule:
+    # GitHub Actions の cron は UTC。高負荷時は数分遅延することがある。
+    - cron: "*/30 0-6 * * 1-5"    # 日本市場: JST 9:00-15:30 を 30 分毎 (月-金)
+    - cron: "*/30 14-21 * * 1-5"  # 米国市場: ET 9:30-17:00 ごろを 30 分毎 (月-金)
+  workflow_dispatch:              # 手動実行 (動作確認用)
+    inputs:
+      dry_run:
+        description: "LINE 送信せず、取得値と本文だけ確認する"
+        type: boolean
+        default: false
+
+# 同時実行を防ぎ、状態ファイルの競合を避ける
+concurrency:
+  group: stock-notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-stock.txt
+
+      # 重複抑制の状態を run 間で持ち越す。run_id を含む一意キーで毎回保存し、
+      # restore-keys のプレフィックスで直近の状態を復元する。
+      - name: Restore alert state
+        uses: actions/cache@v4
+        with:
+          path: storage
+          key: stock-alert-state-${{ github.run_id }}
+          restore-keys: |
+            stock-alert-state-
+
+      - name: Run stock notifier
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+        run: |
+          python stock_notify.py ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
