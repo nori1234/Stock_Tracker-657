@@ -77,11 +77,25 @@ python stock_notify.py --state-file /path/state.json    # 状態ファイルの�
 
 `--dry-run` では状態ファイルを更新しないため、安全に本文だけ確認できます。
 
-定期実行 (cron 例 — 平日 9〜15 時に 15 分おき):
+#### 定期実行
+
+**サーバーがある場合 (cron 例 — 平日 9〜15 時に 15 分おき):**
 
 ```
 */15 9-15 * * 1-5  cd /path/to/repo && python stock_notify.py >> stock.log 2>&1
 ```
+
+**サーバー無しで自動運用 (GitHub Actions):**
+
+`.github/workflows/stock-notify.yml` を同梱しています。平日の日本市場 (JST 9:00-15:30) と米国市場 (ET 9:30-17:00) の時間帯に 30 分おきで実行し、条件成立時に LINE 通知します。
+
+1. リポジトリの **Settings → Secrets and variables → Actions** に Secrets を登録:
+   - `LINE_CHANNEL_ACCESS_TOKEN`
+   - `LINE_TO`
+2. `stocks.yaml` の `watchlist` を編集してコミット（トークンは空のまま。Secrets が環境変数で渡る）。
+3. **Actions タブ → Stock LINE Notify → Run workflow** で手動実行して疎通確認（`dry_run` を ON にすれば送信せず確認のみ）。
+
+重複抑制の状態ファイル (`storage/`) は `actions/cache` で run 間に持ち越されるため、成立し続ける条件の再通知は GitHub Actions 上でも抑制されます。依存は軽量な `requirements-stock.txt`（crewai を含まない）でインストールされます。
 
 テスト (ネットワーク非依存):
 
