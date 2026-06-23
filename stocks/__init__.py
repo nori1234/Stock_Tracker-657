@@ -10,6 +10,7 @@ titans (AI 取締役会) からの段階的な置き換えとして新設。
 """
 from stocks.models import StockQuote
 from stocks.alerts import AlertHit, evaluate_alerts
+from stocks.analyst import StockAnalyst, BoardStockAnalyst, build_agenda
 from stocks.fetcher import StockFetcher
 from stocks.line_notifier import LineNotifier
 from stocks.config import (
@@ -25,6 +26,9 @@ __all__ = [
     "StockQuote",
     "AlertHit",
     "evaluate_alerts",
+    "StockAnalyst",
+    "BoardStockAnalyst",
+    "build_agenda",
     "StockFetcher",
     "LineNotifier",
     "StockConfig",

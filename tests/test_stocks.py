@@ -2,6 +2,7 @@
 import pytest
 
 from stocks.alerts import evaluate_alerts
+from stocks.analyst import build_agenda
 from stocks.config import (
     AlertCondition,
     LineConfig,
@@ -130,6 +131,62 @@ def test_build_message_groups_by_symbol():
     # ヘッダ (銘柄行) は 1 回だけ
     assert msg.count("Apple (AAPL)") == 1
     assert msg.count("条件成立") == 2
+
+
+# ── 取締役会連携 (analyst) ────────────────────────────────────────────────────
+
+class FakeAnalyst:
+    def __init__(self, view="保有を推奨。下落は一時的と判断。", record=None):
+        self.view = view
+        self.calls = record if record is not None else []
+
+    def analyze(self, quote, hits):
+        self.calls.append((quote.symbol, len(hits)))
+        return self.view
+
+
+def test_build_agenda_includes_symbol_and_triggers():
+    q = StockQuote("7203.T", "トヨタ", 2400.0, 2500.0, "JPY")
+    hits = evaluate_alerts(q, [AlertCondition(type="change_pct_below", value=-3)])
+    agenda = build_agenda(q, hits)
+    assert "7203.T" in agenda
+    assert "トヨタ" in agenda
+    assert "前日比" in agenda
+
+
+def test_run_once_with_analyst_adds_view_to_message():
+    cfg = StockConfig(watchlist=[
+        WatchItem(symbol="AAPL", name="Apple",
+                  conditions=[AlertCondition(type="price_below", value=200)]),
+    ])
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    notifier = FakeNotifier()
+    analyst = FakeAnalyst(view="押し目買いを検討。")
+
+    result = run_once(cfg, fetcher=fetcher, notifier=notifier, analyst=analyst)
+
+    assert result.analyses["AAPL"] == "押し目買いを検討。"
+    assert "取締役会の見解" in notifier.sent[0]
+    assert "押し目買いを検討。" in notifier.sent[0]
+    assert analyst.calls == [("AAPL", 1)]
+
+
+def test_run_once_analyst_failure_still_notifies():
+    class BoomAnalyst:
+        def analyze(self, quote, hits):
+            raise RuntimeError("LLM down")
+
+    cfg = StockConfig(watchlist=[
+        WatchItem(symbol="AAPL", conditions=[AlertCondition(type="price_below", value=200)]),
+    ])
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    notifier = FakeNotifier()
+
+    result = run_once(cfg, fetcher=fetcher, notifier=notifier, analyst=BoomAnalyst())
+
+    assert result.notified is True            # 取締役会が落ちてもアラートは送る
+    assert result.analyses == {}
+    assert any("取締役会議論に失敗" in e for e in result.errors)
 
 
 # ── LINE notifier ────────────────────────────────────────────────────────────

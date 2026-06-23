@@ -46,6 +46,20 @@ python stock_notify.py            # 条件成立した銘柄だけ LINE に通�
 python stock_notify.py --dry-run  # 送信せず、取得値と通知本文を確認
 ```
 
+#### AI 取締役会に議論させる (`--discuss`)
+
+発火した銘柄を `titans/` の取締役会 (CFO→CLO→CEO草稿→監査役→CEO最終) にかけ、投資判断の結論を LINE 本文に添えます。実 LLM (Ollama か Anthropic) が必要です。
+
+```bash
+# Ollama (config.yaml の brain 設定を使用)
+python stock_notify.py --discuss --dry-run
+
+# Anthropic API (ANTHROPIC_API_KEY 必須)
+python stock_notify.py --discuss --anthropic --model claude-haiku-4-5-20251001
+```
+
+通知本文には各銘柄の現在値・発火条件に加えて「🤖 取締役会の見解」が付きます。取締役会が失敗してもアラート自体は通常どおり通知されます (見解だけ欠落)。
+
 定期実行 (cron 例 — 平日 9〜15 時に 15 分おき):
 
 ```
