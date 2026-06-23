@@ -20,7 +20,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
-from stocks import BoardStockAnalyst, load_stock_config, run_once
+from stocks import AlertStateStore, BoardStockAnalyst, load_stock_config, run_once
 
 console = Console()
 
@@ -58,7 +58,12 @@ def _build_analyst(titans_config_path, use_anthropic, model_override):
               help="取締役会で Anthropic API を使う (ANTHROPIC_API_KEY 必須)")
 @click.option("--model", "model_override", default=None,
               help="取締役会のモデルを上書き (例: claude-haiku-4-5-20251001)")
-def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_override):
+@click.option("--no-dedup", is_flag=True, default=False,
+              help="重複抑制を無効化し、成立中の条件を毎回通知する")
+@click.option("--state-file", default="./storage/stock_alert_state.json",
+              help="重複抑制の状態ファイルのパス")
+def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_override,
+         no_dedup, state_file):
     """ウォッチリストを 1 回評価して条件成立時に LINE 通知する。"""
     config = load_stock_config(config_path)
 
@@ -70,7 +75,9 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
     if discuss:
         analyst = _build_analyst(titans_config, use_anthropic, model_override)
 
-    result = run_once(config, analyst=analyst, dry_run=dry_run)
+    state_store = None if no_dedup else AlertStateStore(state_file)
+
+    result = run_once(config, analyst=analyst, state_store=state_store, dry_run=dry_run)
 
     # 取得状況のサマリ
     for quote in result.quotes:
@@ -78,8 +85,14 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
     for err in result.errors:
         console.print(f"[red]取得失敗:[/red] {err}")
 
+    if result.suppressed:
+        console.print(f"[dim]重複抑制: 成立中の {result.suppressed} 件は再通知をスキップ。[/dim]")
+
     if not result.hits:
-        console.print("\n[dim]条件成立なし。通知は送信しませんでした。[/dim]")
+        if result.suppressed:
+            console.print("[dim]新規の条件成立なし（成立中の条件は抑制済み）。通知は送信しませんでした。[/dim]")
+        else:
+            console.print("\n[dim]条件成立なし。通知は送信しませんでした。[/dim]")
         sys.exit(0)
 
     if dry_run:
