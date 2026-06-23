@@ -4,6 +4,76 @@ AI executive board system. Four agents (CFO / CLO / CEO / Auditor) share a singl
 
 ---
 
+## 株価 LINE 通知 (stocks/)
+
+このリポジトリは「株価を取得し、条件を満たしたら LINE に通知する」ツールへ段階的に移行中です。AI 取締役会 (`titans/`) はまだ残っていますが、株価通知機能は `stocks/` パッケージとして独立しています。
+
+> **注意:** LINE Notify は 2025-03-31 に終了したため、通知は **LINE Messaging API の push** を使います。LINE Developers でチャネルを作成し、長期のチャネルアクセストークンと送信先 (userId/groupId) を用意してください。
+
+### セットアップ
+
+```bash
+pip install -r requirements.txt          # yfinance / requests を含む
+
+cp .env.example .env                      # 以下を設定
+#   LINE_CHANNEL_ACCESS_TOKEN=...
+#   LINE_TO=...                           # 送信先 userId / groupId
+```
+
+`stocks.yaml` で監視銘柄とアラート条件を定義します（日本株は `7203.T`、米国株は `AAPL` 形式）。
+
+```yaml
+watchlist:
+  - symbol: "7203.T"
+    name: "トヨタ自動車"
+    conditions:
+      - type: price_below       # 現在値 <= value
+        value: 2500
+      - type: change_pct_below  # 前日比(%) <= value
+        value: -3
+  - symbol: "AAPL"
+    conditions:
+      - type: change_pct_above  # 前日比(%) >= value
+        value: 5
+```
+
+条件タイプ: `price_above` / `price_below` / `change_pct_above` / `change_pct_below`
+
+### 実行
+
+```bash
+python stock_notify.py            # 条件成立した銘柄だけ LINE に通知
+python stock_notify.py --dry-run  # 送信せず、取得値と通知本文を確認
+```
+
+#### AI 取締役会に議論させる (`--discuss`)
+
+発火した銘柄を `titans/` の取締役会 (CFO→CLO→CEO草稿→監査役→CEO最終) にかけ、投資判断の結論を LINE 本文に添えます。実 LLM (Ollama か Anthropic) が必要です。
+
+```bash
+# Ollama (config.yaml の brain 設定を使用)
+python stock_notify.py --discuss --dry-run
+
+# Anthropic API (ANTHROPIC_API_KEY 必須)
+python stock_notify.py --discuss --anthropic --model claude-haiku-4-5-20251001
+```
+
+通知本文には各銘柄の現在値・発火条件に加えて「🤖 取締役会の見解」が付きます。取締役会が失敗してもアラート自体は通常どおり通知されます (見解だけ欠落)。
+
+定期実行 (cron 例 — 平日 9〜15 時に 15 分おき):
+
+```
+*/15 9-15 * * 1-5  cd /path/to/repo && python stock_notify.py >> stock.log 2>&1
+```
+
+テスト (ネットワーク非依存):
+
+```bash
+python -m pytest tests/test_stocks.py -q
+```
+
+---
+
 ## Table of Contents
 
 1. [Architecture](#architecture)

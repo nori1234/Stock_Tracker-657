@@ -13,3 +13,7 @@ rank-bm25>=0.2.2
 fastapi>=0.110
 uvicorn[standard]>=0.27
 # letta-client>=0.1   # memory.provider: letta を使う場合のみ必要
+
+# --- 株価通知 (stocks/) ---
+yfinance>=0.2.40       # 株価取得 (日本株 "7203.T" / 米国株 "AAPL")
+requests>=2.31         # LINE Messaging API への push
