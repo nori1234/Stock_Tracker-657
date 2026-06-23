@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__github__merge_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/resync-after-merge.sh\"",
+            "statusMessage": "マージ後にブランチを main へ再同期中..."
+          }
+        ]
+      }
+    ]
+  }
+}
