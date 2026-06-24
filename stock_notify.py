@@ -25,17 +25,17 @@ from stocks import AlertStateStore, BoardStockAnalyst, load_stock_config, run_on
 console = Console()
 
 
-def _build_analyst(titans_config_path, use_anthropic, model_override, summary_only=False):
+def _build_analyst(titans_config_path, provider, model, summary_only=False):
     """config.yaml から brain provider を作り、取締役会アナリストを返す。"""
     from titans.utils.config_loader import create_brain_provider, load_config
 
     app_config = load_config(titans_config_path)
-    if use_anthropic:
-        app_config.brain.provider = "anthropic"
-        if not app_config.brain.model.startswith("claude-"):
+    if provider:
+        app_config.brain.provider = provider
+        if provider == "anthropic" and not app_config.brain.model.startswith("claude-"):
             app_config.brain.model = "claude-haiku-4-5-20251001"
-    if model_override:
-        app_config.brain.model = model_override
+    if model:
+        app_config.brain.model = model
     # 取締役会は議題のみで議論する。RAG/記憶は無効化して軽量に保つ。
     app_config.retrieval.enabled = False
     app_config.memory.enabled = False
@@ -79,10 +79,18 @@ def main(config_path, dry_run, discuss, discuss_summary, use_flex, titans_config
         console.print(f"[yellow]ウォッチリストが空です。{config_path} に銘柄を追加してください。[/yellow]")
         sys.exit(1)
 
+    # 取締役会との融合: stocks.yaml の board 設定を既定にし、CLI フラグが上書きする
+    board = config.board
+    board_enabled = discuss or discuss_summary or board.enabled
+    board_summary = discuss_summary or board.summary
+    board_provider = "anthropic" if use_anthropic else board.provider
+    board_model = model_override or board.model
+    board_titans_config = titans_config if titans_config != "config.yaml" else board.titans_config
+
     analyst = None
-    if discuss or discuss_summary:
-        analyst = _build_analyst(titans_config, use_anthropic, model_override,
-                                 summary_only=discuss_summary)
+    if board_enabled:
+        analyst = _build_analyst(board_titans_config, board_provider, board_model,
+                                 summary_only=board_summary)
 
     state_store = None if no_dedup else AlertStateStore(state_file)
 

@@ -56,8 +56,24 @@ class LineConfig(BaseModel):
         return self.to or os.environ.get("LINE_TO", "")
 
 
+class BoardConfig(BaseModel):
+    """AI 取締役会 (titans) との融合設定。
+
+    enabled=True にすると、アラート発火銘柄を CFO→CLO→CEO→監査役 が議論し、
+    投資判断の結論を LINE 本文に添える。実 LLM (Ollama / Anthropic) が必要。
+    CLI フラグ (--discuss 等) は、ここでの設定を上書きする。
+    """
+
+    enabled: bool = False
+    summary: bool = False                  # 結論を一言サマリに短縮する
+    provider: Optional[str] = None         # "anthropic" 等。None なら config.yaml の設定
+    model: Optional[str] = None            # モデル上書き
+    titans_config: str = "config.yaml"     # 取締役会の設定ファイル
+
+
 class StockConfig(BaseModel):
     line: LineConfig = LineConfig()
+    board: BoardConfig = BoardConfig()
     watchlist: List[WatchItem] = Field(default_factory=list)
 
 

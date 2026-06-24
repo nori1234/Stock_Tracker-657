@@ -36,6 +36,9 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # 既定は通知のみ (軽量)。AI 取締役会との融合 (stocks.yaml の board.enabled)
+      # を Actions で使う場合は requirements.txt (crewai を含む) に切り替え、
+      # board.provider: anthropic + ANTHROPIC_API_KEY Secret を設定すること。
       - name: Install dependencies
         run: pip install -r requirements-stock.txt
 
@@ -53,6 +56,7 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_TO: ${{ secrets.LINE_TO }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # board 融合を使う場合のみ
         run: |
           python stock_notify.py \
             --cooldown-minutes 180 \
