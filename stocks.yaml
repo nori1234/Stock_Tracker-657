@@ -7,6 +7,17 @@ line:
   channel_access_token: ""   # 空なら環境変数 LINE_CHANNEL_ACCESS_TOKEN
   to: ""                     # 送信先 userId/groupId。空なら環境変数 LINE_TO
 
+# AI 取締役会との融合 (titans)。
+# enabled: true にすると、アラート発火銘柄を CFO→CLO→CEO→監査役 が議論し、
+# 投資判断の結論を LINE 本文に添える。実 LLM (Ollama / Anthropic) が必要。
+# CLI フラグ (--discuss / --discuss-summary / --anthropic / --model) が上書きする。
+board:
+  enabled: false             # true で取締役会の議論を有効化
+  summary: true              # 結論を一言サマリに短縮して添える
+  provider: null             # "anthropic" 等。null なら config.yaml の brain 設定
+  model: null                # モデル上書き (例: claude-haiku-4-5-20251001)
+  titans_config: "config.yaml"
+
 # 監視銘柄。symbol は yfinance 形式:
 #   日本株 … 証券コード + ".T"  (例: 7203.T = トヨタ自動車)
 #   米国株 … ティッカー         (例: AAPL)

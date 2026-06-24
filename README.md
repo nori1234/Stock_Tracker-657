@@ -1,14 +1,30 @@
-# Titans Board v2.0
+# Stock Tracker — 株価監視 × AI取締役会 × LINE通知
 
-AI executive board system. Four agents (CFO / CLO / CEO / Auditor) share a single LLM instance ("One Brain"), deliberate on a management agenda using RAG retrieval and long-term memory, and produce a final board report.
+株価を監視し、条件が成立した銘柄を **AI 取締役会 (CFO / CLO / CEO / 監査役)** が議論して、
+その投資判断を添えて **LINE** に通知する統合ツール。
 
----
+```
+ ウォッチリスト (日本株/米国株)
+        │  yfinance で取得
+        ▼
+   条件アラート判定 ──────────── 価格 / 前日比 / 出来高 / 移動平均 / 52週高安
+        │  成立した銘柄だけ
+        ▼
+   AI 取締役会で議論 (任意) ───── CFO→CLO→CEO草稿→監査役→CEO最終 (titans)
+        │  結論を添えて
+        ▼
+   LINE 通知 (Messaging API) ──── テキスト or Flex カード / 重複抑制
+```
 
-## 株価 LINE 通知 (stocks/)
+2 つのサブシステムで構成される:
 
-このリポジトリは「株価を取得し、条件を満たしたら LINE に通知する」ツールへ段階的に移行中です。AI 取締役会 (`titans/`) はまだ残っていますが、株価通知機能は `stocks/` パッケージとして独立しています。
+- **`stocks/`** … 株価取得・条件アラート・LINE 通知・重複抑制・定期実行
+- **`titans/`** … AI 取締役会エンジン。1 つの LLM を 4 役員で共有し議論する
+  ("One Brain")。株の議論 (`board` 連携) に加え、単体の経営課題審議にも使える
 
 > **注意:** LINE Notify は 2025-03-31 に終了したため、通知は **LINE Messaging API の push** を使います。LINE Developers でチャネルを作成し、長期のチャネルアクセストークンと送信先 (userId/groupId) を用意してください。
+
+クイックスタートと運用手順は **[SETUP.md](SETUP.md)** を参照。
 
 ### セットアップ
 
@@ -66,9 +82,21 @@ python stock_notify.py            # 条件成立した銘柄だけ LINE に通�
 python stock_notify.py --dry-run  # 送信せず、取得値と通知本文を確認
 ```
 
-#### AI 取締役会に議論させる (`--discuss`)
+#### AI 取締役会に議論させる (融合)
 
 発火した銘柄を `titans/` の取締役会 (CFO→CLO→CEO草稿→監査役→CEO最終) にかけ、投資判断の結論を LINE 本文に添えます。実 LLM (Ollama か Anthropic) が必要です。
+
+**設定で常時有効化する (推奨・定期実行向け)** — `stocks.yaml` の `board` セクション:
+
+```yaml
+board:
+  enabled: true              # 取締役会の議論を有効化
+  summary: true              # 結論を一言サマリに短縮
+  provider: anthropic        # null なら config.yaml の brain 設定を使う
+  model: claude-haiku-4-5-20251001
+```
+
+**その場限りで切り替える (CLI フラグが設定を上書き):**
 
 ```bash
 # Ollama (config.yaml の brain 設定を使用)

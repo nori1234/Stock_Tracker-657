@@ -592,6 +592,30 @@ def test_load_stock_config_parses(tmp_path):
     assert cfg.watchlist[0].conditions[0].type == "price_above"
 
 
+def test_board_config_defaults_disabled():
+    cfg = StockConfig()
+    assert cfg.board.enabled is False
+    assert cfg.board.titans_config == "config.yaml"
+
+
+def test_load_stock_config_parses_board(tmp_path):
+    p = tmp_path / "stocks.yaml"
+    p.write_text(
+        "board:\n"
+        "  enabled: true\n"
+        "  summary: true\n"
+        "  provider: anthropic\n"
+        "  model: claude-haiku-4-5-20251001\n"
+        "watchlist: []\n",
+        encoding="utf-8",
+    )
+    cfg = load_stock_config(str(p))
+    assert cfg.board.enabled is True
+    assert cfg.board.summary is True
+    assert cfg.board.provider == "anthropic"
+    assert cfg.board.model == "claude-haiku-4-5-20251001"
+
+
 def test_line_config_env_fallback(monkeypatch):
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "envtok")
     monkeypatch.setenv("LINE_TO", "envto")

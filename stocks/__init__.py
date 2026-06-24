@@ -19,6 +19,7 @@ from stocks.config import (
     WatchItem,
     AlertCondition,
     LineConfig,
+    BoardConfig,
     load_stock_config,
 )
 from stocks.runner import run_once
@@ -38,6 +39,7 @@ __all__ = [
     "WatchItem",
     "AlertCondition",
     "LineConfig",
+    "BoardConfig",
     "load_stock_config",
     "run_once",
 ]
