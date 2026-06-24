@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -9,6 +10,7 @@ class StockQuote:
     """1 銘柄の現時点のスナップショット。
 
     日本株 (例: ``7203.T``) と米国株 (例: ``AAPL``) を同じ形で扱う。
+    price / previous_close 以外は取得できないことがあり Optional。
     """
 
     symbol: str
@@ -16,6 +18,15 @@ class StockQuote:
     price: float            # 現在値 (直近約定/終値)
     previous_close: float   # 前日終値
     currency: str = ""      # "JPY" / "USD" など (取得できなければ空)
+
+    # --- 追加の市況指標 (取得できれば埋まる。アラート条件で使用) ---
+    day_high: Optional[float] = None        # 当日高値
+    day_low: Optional[float] = None         # 当日安値
+    volume: Optional[float] = None          # 出来高
+    year_high: Optional[float] = None       # 52週高値
+    year_low: Optional[float] = None        # 52週安値
+    ma50: Optional[float] = None            # 50日移動平均
+    ma200: Optional[float] = None           # 200日移動平均
 
     @property
     def change(self) -> float:

@@ -37,7 +37,27 @@ watchlist:
         value: 5
 ```
 
-条件タイプ: `price_above` / `price_below` / `change_pct_above` / `change_pct_below`
+条件タイプ:
+
+| type | 意味 | value |
+|------|------|-------|
+| `price_above` / `price_below` | 現在値と value を比較 | 必須 |
+| `change_pct_above` / `change_pct_below` | 前日比(%) と value を比較 | 必須 |
+| `volume_above` | 出来高 ≥ value | 必須 |
+| `near_year_high` / `near_year_low` | 52週高値/安値の value% 以内 | 必須 |
+| `above_ma50` / `below_ma50` | 現在値と50日移動平均を比較 | 不要 |
+| `above_ma200` / `below_ma200` | 現在値と200日移動平均を比較 | 不要 |
+
+移動平均・出来高・52週高安は yfinance から取得できた場合に判定されます（取得できない銘柄ではその条件は発火しません）。
+
+#### Flex Message / 取締役会サマリ
+
+```bash
+python stock_notify.py --flex                       # カード表示 (Flex Message) で送信
+python stock_notify.py --discuss --discuss-summary  # 取締役会の結論を一言サマリにして添付
+```
+
+`--flex` は銘柄ごとに色分け（上昇=赤/下落=緑）したカードを送ります（複数銘柄は横スワイプの carousel）。`--discuss-summary` は CEO 最終結論の最初の一文だけを抜き出して短く添えます（追加の LLM 呼び出しなし）。
 
 ### 実行
 

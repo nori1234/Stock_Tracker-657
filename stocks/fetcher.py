@@ -25,7 +25,9 @@ class StockFetcher:
             ) from e
 
         ticker = yf.Ticker(symbol)
-        price, previous_close, currency, fetched_name = self._extract(ticker, symbol)
+        extracted = self._extract(ticker, symbol)
+        price = extracted["price"]
+        previous_close = extracted["previous_close"]
 
         if price is None or previous_close is None:
             raise StockFetchError(
@@ -35,42 +37,69 @@ class StockFetcher:
 
         return StockQuote(
             symbol=symbol,
-            name=name or fetched_name or symbol,
+            name=name or extracted["name"] or symbol,
             price=float(price),
             previous_close=float(previous_close),
-            currency=currency or "",
+            currency=extracted["currency"] or "",
+            day_high=_as_float(extracted["day_high"]),
+            day_low=_as_float(extracted["day_low"]),
+            volume=_as_float(extracted["volume"]),
+            year_high=_as_float(extracted["year_high"]),
+            year_low=_as_float(extracted["year_low"]),
+            ma50=_as_float(extracted["ma50"]),
+            ma200=_as_float(extracted["ma200"]),
         )
 
     @staticmethod
-    def _extract(ticker, symbol: str):
-        """yfinance の Ticker から (現在値, 前日終値, 通貨, 名称) を取り出す。
+    def _extract(ticker, symbol: str) -> dict:
+        """yfinance の Ticker から各種指標を取り出す。
 
-        fast_info を優先し、欠損時は .info にフォールバックする。
+        fast_info を優先し、現在値/前日終値が欠損するときだけ .info にフォールバックする。
+        追加指標 (移動平均・高安・出来高) は fast_info から取得できる範囲で埋める。
         """
-        price = previous_close = currency = name = None
+        out = {
+            "price": None, "previous_close": None, "currency": None, "name": None,
+            "day_high": None, "day_low": None, "volume": None,
+            "year_high": None, "year_low": None, "ma50": None, "ma200": None,
+        }
 
         fast = getattr(ticker, "fast_info", None)
         if fast is not None:
-            price = _safe_get(fast, "last_price")
-            previous_close = _safe_get(fast, "previous_close")
-            currency = _safe_get(fast, "currency")
+            out["price"] = _safe_get(fast, "last_price")
+            out["previous_close"] = _safe_get(fast, "previous_close")
+            out["currency"] = _safe_get(fast, "currency")
+            out["day_high"] = _safe_get(fast, "day_high")
+            out["day_low"] = _safe_get(fast, "day_low")
+            out["volume"] = _safe_get(fast, "last_volume")
+            out["year_high"] = _safe_get(fast, "year_high")
+            out["year_low"] = _safe_get(fast, "year_low")
+            out["ma50"] = _safe_get(fast, "fifty_day_average")
+            out["ma200"] = _safe_get(fast, "two_hundred_day_average")
 
-        if price is None or previous_close is None:
+        if out["price"] is None or out["previous_close"] is None:
             info = {}
             try:
                 info = ticker.info or {}
             except Exception:
                 info = {}
-            price = price if price is not None else info.get("regularMarketPrice")
-            previous_close = (
-                previous_close
-                if previous_close is not None
-                else info.get("regularMarketPreviousClose") or info.get("previousClose")
-            )
-            currency = currency or info.get("currency")
-            name = info.get("shortName") or info.get("longName")
+            if out["price"] is None:
+                out["price"] = info.get("regularMarketPrice")
+            if out["previous_close"] is None:
+                out["previous_close"] = (
+                    info.get("regularMarketPreviousClose") or info.get("previousClose")
+                )
+            out["currency"] = out["currency"] or info.get("currency")
+            out["name"] = info.get("shortName") or info.get("longName")
+            # info 側にしか無い指標も拾えれば拾う
+            out["day_high"] = out["day_high"] or info.get("dayHigh")
+            out["day_low"] = out["day_low"] or info.get("dayLow")
+            out["volume"] = out["volume"] or info.get("volume")
+            out["year_high"] = out["year_high"] or info.get("fiftyTwoWeekHigh")
+            out["year_low"] = out["year_low"] or info.get("fiftyTwoWeekLow")
+            out["ma50"] = out["ma50"] or info.get("fiftyDayAverage")
+            out["ma200"] = out["ma200"] or info.get("twoHundredDayAverage")
 
-        return price, previous_close, currency, name
+        return out
 
 
 def _safe_get(fast_info, key: str):
@@ -80,3 +109,13 @@ def _safe_get(fast_info, key: str):
     except Exception:
         return None
     return value
+
+
+def _as_float(value):
+    """None でなければ float に。変換できなければ None。"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

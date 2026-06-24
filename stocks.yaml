@@ -16,6 +16,11 @@ line:
 #   price_below       現在値 <= value
 #   change_pct_above  前日比(%) >= value
 #   change_pct_below  前日比(%) <= value
+#   volume_above      出来高 >= value
+#   near_year_high    52週高値の value% 以内まで上昇
+#   near_year_low     52週安値の value% 以内まで下落
+#   above_ma50 / below_ma50     現在値 と 50日移動平均 を比較 (value 不要)
+#   above_ma200 / below_ma200   現在値 と 200日移動平均 を比較 (value 不要)
 watchlist:
   - symbol: "7203.T"
     name: "トヨタ自動車"
@@ -26,11 +31,12 @@ watchlist:
         value: 2500
       - type: change_pct_below
         value: -3
+      - type: below_ma50          # 50日線割れ (value 不要)
 
   - symbol: "AAPL"
     name: "Apple"
     conditions:
-      - type: price_below
-        value: 180
       - type: change_pct_above
         value: 5
+      - type: near_year_high      # 52週高値の3%以内
+        value: 3

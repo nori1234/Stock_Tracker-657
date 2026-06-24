@@ -25,7 +25,7 @@ from stocks import AlertStateStore, BoardStockAnalyst, load_stock_config, run_on
 console = Console()
 
 
-def _build_analyst(titans_config_path, use_anthropic, model_override):
+def _build_analyst(titans_config_path, use_anthropic, model_override, summary_only=False):
     """config.yaml から brain provider を作り、取締役会アナリストを返す。"""
     from titans.utils.config_loader import create_brain_provider, load_config
 
@@ -43,7 +43,7 @@ def _build_analyst(titans_config_path, use_anthropic, model_override):
     console.print(
         f"[dim]取締役会: provider={app_config.brain.provider} model={app_config.brain.model}[/dim]"
     )
-    return BoardStockAnalyst(brain_provider=brain, config=app_config)
+    return BoardStockAnalyst(brain_provider=brain, config=app_config, summary_only=summary_only)
 
 
 @click.command()
@@ -52,6 +52,10 @@ def _build_analyst(titans_config_path, use_anthropic, model_override):
               help="LINE 送信せず、取得値と通知本文を表示するだけ")
 @click.option("--discuss", is_flag=True, default=False,
               help="発火した銘柄を AI 取締役会 (titans) に議論させ、結論を本文に添える")
+@click.option("--discuss-summary", is_flag=True, default=False,
+              help="--discuss の結論を一言サマリに短縮して添える")
+@click.option("--flex", "use_flex", is_flag=True, default=False,
+              help="LINE Flex Message (カード表示) で送信する")
 @click.option("--titans-config", default="config.yaml",
               help="取締役会の設定ファイル (--discuss 時に使用)")
 @click.option("--anthropic", "use_anthropic", is_flag=True, default=False,
@@ -66,8 +70,8 @@ def _build_analyst(titans_config_path, use_anthropic, model_override):
               help="同一条件は最後の通知からこの分数だけ再通知しない (フラッピング対策)")
 @click.option("--notify-errors", is_flag=True, default=False,
               help="株価取得に失敗した銘柄があるとき LINE に別途通知する")
-def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_override,
-         no_dedup, state_file, cooldown_minutes, notify_errors):
+def main(config_path, dry_run, discuss, discuss_summary, use_flex, titans_config,
+         use_anthropic, model_override, no_dedup, state_file, cooldown_minutes, notify_errors):
     """ウォッチリストを 1 回評価して条件成立時に LINE 通知する。"""
     config = load_stock_config(config_path)
 
@@ -76,8 +80,9 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
         sys.exit(1)
 
     analyst = None
-    if discuss:
-        analyst = _build_analyst(titans_config, use_anthropic, model_override)
+    if discuss or discuss_summary:
+        analyst = _build_analyst(titans_config, use_anthropic, model_override,
+                                 summary_only=discuss_summary)
 
     state_store = None if no_dedup else AlertStateStore(state_file)
 
@@ -87,6 +92,7 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
         state_store=state_store,
         cooldown_minutes=cooldown_minutes,
         notify_errors=notify_errors,
+        use_flex=use_flex,
         dry_run=dry_run,
     )
 
@@ -110,7 +116,10 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
         sys.exit(0)
 
     if dry_run:
-        console.print(Panel(result.message, title="[dry-run] 送信される LINE 本文", border_style="cyan"))
+        title = "[dry-run] 送信される LINE 本文"
+        if use_flex:
+            title += "（実送信は Flex カード）"
+        console.print(Panel(result.message, title=title, border_style="cyan"))
         sys.exit(0)
 
     if result.notified:

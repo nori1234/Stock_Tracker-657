@@ -79,6 +79,7 @@ def run_once(
     state_store: Optional[AlertStateStore] = None,
     cooldown_minutes: int = 0,
     notify_errors: bool = False,
+    use_flex: bool = False,
     dry_run: bool = False,
 ) -> RunResult:
     """ウォッチリストを 1 回評価し、条件成立があれば通知する。
@@ -157,7 +158,12 @@ def run_once(
         to=config.line.resolved_to(),
     )
     if notify_alert:
-        notifier.push(result.message)
+        if use_flex:
+            from stocks import flex
+            notifier.push_flex(flex.alt_text(result.hits),
+                               flex.build_flex(result.hits, result.analyses))
+        else:
+            notifier.push(result.message)
         result.notified = True
     if notify_failure:
         notifier.push(build_error_message(result.errors))
