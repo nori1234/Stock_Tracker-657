@@ -12,7 +12,7 @@ from stocks.config import (
 )
 from stocks.line_notifier import LineNotifier, LineNotifyError
 from stocks.models import StockQuote
-from stocks.runner import build_message, run_once
+from stocks.runner import build_error_message, build_message, run_once
 
 
 # ── モデル ──────────────────────────────────────────────────────────────────
@@ -269,6 +269,156 @@ def test_hit_key_stable():
     q = StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")
     hits = evaluate_alerts(q, [AlertCondition(type="price_below", value=200)])
     assert hit_key(hits[0]) == "AAPL|price_below|200.0"
+
+
+# ── クールダウン (時間ベース抑制) ────────────────────────────────────────────
+
+from datetime import datetime, timedelta
+
+from stocks.state import hit_key as _hit_key
+
+
+def test_cooldown_suppresses_quick_refire(tmp_path):
+    """エッジ的には新規でも、最後の通知から cooldown 内なら抑制する。"""
+    cfg = _cfg_aapl_below_200()
+    state_path = str(tmp_path / "state.json")
+
+    # 1回目: 成立 → 通知 (last_notified 記録)
+    n1 = FakeNotifier()
+    r1 = run_once(cfg, fetcher=FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")]),
+                  notifier=n1, state_store=AlertStateStore(state_path), cooldown_minutes=60)
+    assert r1.notified is True
+
+    # 条件が外れて再武装 (active から消える)
+    run_once(cfg, fetcher=FakeFetcher([StockQuote("AAPL", "Apple", 250.0, 240.0, "USD")]),
+             notifier=FakeNotifier(), state_store=AlertStateStore(state_path), cooldown_minutes=60)
+
+    # すぐ再成立 → エッジ的には新規だが cooldown 60 分内なので抑制
+    n3 = FakeNotifier()
+    r3 = run_once(cfg, fetcher=FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")]),
+                  notifier=n3, state_store=AlertStateStore(state_path), cooldown_minutes=60)
+    assert r3.notified is False
+    assert n3.sent == []
+    assert r3.suppressed == 1
+
+
+def test_cooldown_allows_after_window(tmp_path):
+    state_path = str(tmp_path / "state.json")
+    store = AlertStateStore(state_path)
+    key = "AAPL|price_below|200.0"
+    now = datetime(2026, 1, 1, 12, 0, 0)
+
+    # 70 分前に通知済みとして記録
+    store.commit({key}, notified_keys=[key], now=now - timedelta(minutes=70))
+    reloaded = AlertStateStore(state_path)
+
+    assert reloaded.cooled_down(key, now, cooldown_minutes=60) is True   # 60分窓は過ぎた
+    assert reloaded.cooled_down(key, now, cooldown_minutes=90) is False  # 90分窓内
+
+
+def test_cooldown_disabled_when_zero(tmp_path):
+    store = AlertStateStore(str(tmp_path / "s.json"))
+    assert store.cooled_down("k", datetime.now(), cooldown_minutes=0) is True
+
+
+# ── 取得失敗の通知 (notify_errors) ───────────────────────────────────────────
+
+class BoomFetcher:
+    def fetch(self, symbol, name=None):
+        from stocks.fetcher import StockFetchError
+        raise StockFetchError("取得不能")
+
+
+def test_notify_errors_sends_failure_message():
+    cfg = StockConfig(watchlist=[WatchItem(symbol="AAPL", conditions=[])])
+    notifier = FakeNotifier()
+    result = run_once(cfg, fetcher=BoomFetcher(), notifier=notifier, notify_errors=True)
+    assert result.error_notified is True
+    assert len(notifier.sent) == 1
+    assert "取得エラー" in notifier.sent[0]
+    assert "AAPL" in notifier.sent[0]
+
+
+def test_no_notify_errors_by_default():
+    cfg = StockConfig(watchlist=[WatchItem(symbol="AAPL", conditions=[])])
+    notifier = FakeNotifier()
+    result = run_once(cfg, fetcher=BoomFetcher(), notifier=notifier)
+    assert result.error_notified is False
+    assert notifier.sent == []
+
+
+def test_build_error_message_truncates():
+    msg = build_error_message([f"S{i}: boom" for i in range(25)])
+    assert "ほか 5 件" in msg
+
+
+# ── fetcher (yfinance をモック) ───────────────────────────────────────────────
+
+import sys
+import types
+
+
+class _FakeFastInfo(dict):
+    """fast_info 風 (dict アクセス)。"""
+
+
+class _FakeTicker:
+    def __init__(self, fast=None, info=None):
+        self.fast_info = fast
+        self._info = info or {}
+
+    @property
+    def info(self):
+        return self._info
+
+
+def _install_fake_yfinance(monkeypatch, ticker):
+    fake = types.ModuleType("yfinance")
+    fake.Ticker = lambda symbol: ticker
+    monkeypatch.setitem(sys.modules, "yfinance", fake)
+
+
+def test_fetcher_uses_fast_info(monkeypatch):
+    from stocks.fetcher import StockFetcher
+
+    ticker = _FakeTicker(fast=_FakeFastInfo(
+        last_price=2500.0, previous_close=2400.0, currency="JPY"))
+    _install_fake_yfinance(monkeypatch, ticker)
+
+    q = StockFetcher().fetch("7203.T", name="トヨタ")
+    assert q.price == 2500.0
+    assert q.previous_close == 2400.0
+    assert q.currency == "JPY"
+    assert q.name == "トヨタ"
+    assert q.change_pct > 0
+
+
+def test_fetcher_falls_back_to_info(monkeypatch):
+    from stocks.fetcher import StockFetcher
+
+    # fast_info は欠損、.info から取得
+    ticker = _FakeTicker(fast=_FakeFastInfo(), info={
+        "regularMarketPrice": 190.0,
+        "regularMarketPreviousClose": 200.0,
+        "currency": "USD",
+        "shortName": "Apple Inc.",
+    })
+    _install_fake_yfinance(monkeypatch, ticker)
+
+    q = StockFetcher().fetch("AAPL")
+    assert q.price == 190.0
+    assert q.previous_close == 200.0
+    assert q.name == "Apple Inc."
+
+
+def test_fetcher_raises_when_no_data(monkeypatch):
+    from stocks.fetcher import StockFetcher, StockFetchError
+
+    ticker = _FakeTicker(fast=_FakeFastInfo(), info={})
+    _install_fake_yfinance(monkeypatch, ticker)
+
+    with pytest.raises(StockFetchError):
+        StockFetcher().fetch("BOGUS")
 
 
 # ── LINE notifier ────────────────────────────────────────────────────────────

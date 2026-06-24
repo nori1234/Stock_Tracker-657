@@ -73,9 +73,22 @@ python stock_notify.py --discuss --anthropic --model claude-haiku-4-5-20251001
 ```bash
 python stock_notify.py --no-dedup                       # 抑制を無効化 (毎回通知)
 python stock_notify.py --state-file /path/state.json    # 状態ファイルの場所を変更
+python stock_notify.py --cooldown-minutes 180           # 同一条件は最後の通知から180分は再通知しない
 ```
 
+`--cooldown-minutes` はエッジトリガーの補完で、条件が短時間で成立/解消を繰り返す
+(フラッピング) ときの連続通知を防ぎます。最後に通知した時刻を状態ファイルに記録します。
+
 `--dry-run` では状態ファイルを更新しないため、安全に本文だけ確認できます。
+
+#### 取得失敗の通知
+
+`--notify-errors` を付けると、株価取得に失敗した銘柄があるとき LINE に別メッセージで
+知らせます (黙って落ちない運用向け)。
+
+```bash
+python stock_notify.py --notify-errors
+```
 
 #### 定期実行
 
