@@ -62,8 +62,12 @@ def _build_analyst(titans_config_path, use_anthropic, model_override):
               help="重複抑制を無効化し、成立中の条件を毎回通知する")
 @click.option("--state-file", default="./storage/stock_alert_state.json",
               help="重複抑制の状態ファイルのパス")
+@click.option("--cooldown-minutes", type=int, default=0,
+              help="同一条件は最後の通知からこの分数だけ再通知しない (フラッピング対策)")
+@click.option("--notify-errors", is_flag=True, default=False,
+              help="株価取得に失敗した銘柄があるとき LINE に別途通知する")
 def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_override,
-         no_dedup, state_file):
+         no_dedup, state_file, cooldown_minutes, notify_errors):
     """ウォッチリストを 1 回評価して条件成立時に LINE 通知する。"""
     config = load_stock_config(config_path)
 
@@ -77,7 +81,14 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
 
     state_store = None if no_dedup else AlertStateStore(state_file)
 
-    result = run_once(config, analyst=analyst, state_store=state_store, dry_run=dry_run)
+    result = run_once(
+        config,
+        analyst=analyst,
+        state_store=state_store,
+        cooldown_minutes=cooldown_minutes,
+        notify_errors=notify_errors,
+        dry_run=dry_run,
+    )
 
     # 取得状況のサマリ
     for quote in result.quotes:
@@ -87,6 +98,9 @@ def main(config_path, dry_run, discuss, titans_config, use_anthropic, model_over
 
     if result.suppressed:
         console.print(f"[dim]重複抑制: 成立中の {result.suppressed} 件は再通知をスキップ。[/dim]")
+
+    if result.error_notified:
+        console.print(f"[yellow]取得失敗 {len(result.errors)} 件を LINE に通知しました。[/yellow]")
 
     if not result.hits:
         if result.suppressed:
