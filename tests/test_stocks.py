@@ -63,6 +63,42 @@ def test_unknown_condition_raises():
         evaluate_alerts(_quote(100, 100), [AlertCondition(type="bogus", value=1)])
 
 
+# ── 追加のアラート条件 (フェーズC) ────────────────────────────────────────────
+
+def test_ma_conditions_without_value():
+    q = StockQuote("AAPL", "Apple", 190.0, 188.0, "USD", ma50=180.0, ma200=200.0)
+    hits = evaluate_alerts(q, [
+        AlertCondition(type="above_ma50"),   # 190 >= 180 → 発火
+        AlertCondition(type="below_ma200"),  # 190 <= 200 → 発火
+        AlertCondition(type="above_ma200"),  # 190 >= 200 → 不発火
+    ])
+    msgs = [h.message for h in hits]
+    assert any("50日移動平均を上回る" in m for m in msgs)
+    assert any("200日移動平均を下回る" in m for m in msgs)
+    assert len(hits) == 2
+
+
+def test_ma_condition_missing_data_does_not_fire():
+    q = StockQuote("AAPL", "Apple", 190.0, 188.0, "USD")  # ma50 未取得
+    hits = evaluate_alerts(q, [AlertCondition(type="above_ma50")])
+    assert hits == []
+
+
+def test_volume_and_year_high_conditions():
+    q = StockQuote("AAPL", "Apple", 198.0, 190.0, "USD", volume=5_000_000, year_high=200.0)
+    hits = evaluate_alerts(q, [
+        AlertCondition(type="volume_above", value=1_000_000),  # 発火
+        AlertCondition(type="near_year_high", value=2),        # 200*0.98=196 <= 198 → 発火
+    ])
+    assert len(hits) == 2
+
+
+def test_value_required_condition_raises_without_value():
+    q = StockQuote("AAPL", "Apple", 100.0, 100.0)
+    with pytest.raises(ValueError):
+        evaluate_alerts(q, [AlertCondition(type="price_above")])
+
+
 # ── runner ────────────────────────────────────────────────────────────────
 
 class FakeFetcher:
@@ -76,9 +112,13 @@ class FakeFetcher:
 class FakeNotifier:
     def __init__(self):
         self.sent = []
+        self.flex = []
 
     def push(self, text):
         self.sent.append(text)
+
+    def push_flex(self, alt_text, contents):
+        self.flex.append((alt_text, contents))
 
 
 def test_run_once_notifies_on_hit():
@@ -419,6 +459,68 @@ def test_fetcher_raises_when_no_data(monkeypatch):
 
     with pytest.raises(StockFetchError):
         StockFetcher().fetch("BOGUS")
+
+
+# ── Flex Message (フェーズC) ─────────────────────────────────────────────────
+
+from stocks.flex import alt_text as flex_alt, build_flex
+
+
+def test_build_flex_single_symbol_is_bubble():
+    q = StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")
+    hits = evaluate_alerts(q, [AlertCondition(type="price_below", value=200)])
+    contents = build_flex(hits)
+    assert contents["type"] == "bubble"
+    assert contents["header"]["contents"][0]["text"] == "Apple"
+
+
+def test_build_flex_multi_symbol_is_carousel():
+    q1 = StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")
+    q2 = StockQuote("7203.T", "トヨタ", 2400.0, 2500.0, "JPY")
+    hits = (evaluate_alerts(q1, [AlertCondition(type="price_below", value=200)]) +
+            evaluate_alerts(q2, [AlertCondition(type="price_below", value=2500)]))
+    contents = build_flex(hits)
+    assert contents["type"] == "carousel"
+    assert len(contents["contents"]) == 2
+
+
+def test_run_once_use_flex_calls_push_flex():
+    cfg = StockConfig(watchlist=[
+        WatchItem(symbol="AAPL", name="Apple",
+                  conditions=[AlertCondition(type="price_below", value=200)]),
+    ])
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    notifier = FakeNotifier()
+
+    result = run_once(cfg, fetcher=fetcher, notifier=notifier, use_flex=True)
+
+    assert result.notified is True
+    assert len(notifier.flex) == 1          # flex で送信
+    assert notifier.sent == []              # text では送らない
+    assert "AAPL" in notifier.flex[0][0]    # altText
+
+
+def test_flex_alt_text_lists_symbols():
+    q = StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")
+    hits = evaluate_alerts(q, [AlertCondition(type="price_below", value=200)])
+    assert "AAPL" in flex_alt(hits)
+
+
+# ── 取締役会の一言サマリ (フェーズC) ──────────────────────────────────────────
+
+from stocks.analyst import summarize_conclusion
+
+
+def test_summarize_conclusion_takes_first_sentence():
+    text = "## 結論\n- 保有を継続すべきである。理由は以下の通り。\n詳細..."
+    s = summarize_conclusion(text)
+    assert s == "保有を継続すべきである。"
+
+
+def test_summarize_conclusion_truncates_long():
+    s = summarize_conclusion("あ" * 300, max_chars=100)
+    assert s.endswith("…")
+    assert len(s) <= 101
 
 
 # ── LINE notifier ────────────────────────────────────────────────────────────

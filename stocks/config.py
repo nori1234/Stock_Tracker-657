@@ -19,15 +19,17 @@ load_dotenv()
 class AlertCondition(BaseModel):
     """1 つのアラート条件。
 
-    type:
-        price_above       … 現在値 >= value
-        price_below       … 現在値 <= value
-        change_pct_above  … 前日比(%) >= value
-        change_pct_below  … 前日比(%) <= value
+    type と、必要なら value を指定する:
+        price_above / price_below            … 現在値 と value を比較
+        change_pct_above / change_pct_below  … 前日比(%) と value を比較
+        volume_above                         … 出来高 >= value
+        near_year_high / near_year_low       … 52週高値/安値の value% 以内
+        above_ma50 / below_ma50              … 現在値と50日移動平均を比較 (value不要)
+        above_ma200 / below_ma200            … 現在値と200日移動平均を比較 (value不要)
     """
 
     type: str
-    value: float
+    value: Optional[float] = None
 
 
 class WatchItem(BaseModel):

@@ -44,10 +44,22 @@ class LineNotifier:
 
     def push(self, text: str) -> None:
         """テキストメッセージを 1 通 push する。LINE の 1 通上限 5000 字で切り詰める。"""
-        payload = {
-            "to": self.to,
-            "messages": [{"type": "text", "text": text[:5000]}],
-        }
+        self._push_messages([{"type": "text", "text": text[:5000]}])
+
+    def push_flex(self, alt_text: str, contents: dict) -> None:
+        """Flex Message を 1 通 push する。
+
+        alt_text は通知一覧/プレビュー用のテキスト、contents は Flex の
+        bubble または carousel オブジェクト。
+        """
+        self._push_messages([{
+            "type": "flex",
+            "altText": alt_text[:400],
+            "contents": contents,
+        }])
+
+    def _push_messages(self, messages: list) -> None:
+        payload = {"to": self.to, "messages": messages}
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",

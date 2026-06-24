@@ -42,12 +42,13 @@ class BoardStockAnalyst:
     """BoardMeetingFlow を使って投資判断の結論 (CEO最終) を返すアナリスト。"""
 
     def __init__(self, brain_provider, config, knowledge_base=None, memory_store=None,
-                 max_chars: int = 800):
+                 max_chars: int = 800, summary_only: bool = False):
         self._brain_provider = brain_provider
         self._config = config
         self._knowledge_base = knowledge_base
         self._memory_store = memory_store
         self._max_chars = max_chars
+        self._summary_only = summary_only   # True なら結論を一言サマリに短縮
 
     def analyze(self, quote: StockQuote, hits: List[AlertHit]) -> str:
         # import を遅延させ、stocks 単体利用時に crewai を要求しないようにする
@@ -66,6 +67,35 @@ class BoardStockAnalyst:
         if report is None or not report.ceo_final_output:
             return ""
         conclusion = report.ceo_final_output.strip()
+        if self._summary_only:
+            return summarize_conclusion(conclusion)
         if len(conclusion) > self._max_chars:
             conclusion = conclusion[: self._max_chars] + "…"
         return conclusion
+
+
+def summarize_conclusion(text: str, max_chars: int = 120) -> str:
+    """取締役会の結論を「一言サマリ」に短縮する。
+
+    LLM を追加で呼ばず、最初の意味のある一文を取り出す簡易要約。
+    箇条書き記号や見出しを除き、最初の文末 (。!?) までを返す。
+    """
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        # 見出し行 (# / ＃ で始まる) は本文ではないので飛ばす
+        if not stripped or stripped[0] in "#＃":
+            continue
+        line = stripped.lstrip("-*・•#＃ 　").strip()
+        if not line:
+            continue
+        # 最初の文末記号までを 1 文として取り出す
+        for i, ch in enumerate(line):
+            if ch in "。．.!?！？":
+                sentence = line[: i + 1].strip()
+                break
+        else:
+            sentence = line
+        if len(sentence) > max_chars:
+            sentence = sentence[:max_chars] + "…"
+        return sentence
+    return ""
