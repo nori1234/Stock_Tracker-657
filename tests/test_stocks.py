@@ -649,6 +649,88 @@ def test_line_notifier_gives_up_after_max_retries():
     assert len(slept) == 2
 
 
+# ── LINE Bot (双方向) ─────────────────────────────────────────────────────────
+
+import base64 as _base64
+import hashlib as _hashlib
+import hmac as _hmac
+
+from stocks.bot import (
+    HELP_TEXT,
+    build_reply_text,
+    handle_webhook_body,
+    verify_signature,
+)
+
+
+def _sign(secret: str, body: bytes) -> str:
+    mac = _hmac.new(secret.encode(), body, _hashlib.sha256).digest()
+    return _base64.b64encode(mac).decode()
+
+
+def test_verify_signature_ok_and_ng():
+    body = b'{"events":[]}'
+    sig = _sign("sekret", body)
+    assert verify_signature("sekret", body, sig) is True
+    assert verify_signature("sekret", body, "wrong") is False
+    assert verify_signature("", body, sig) is False        # secret 未設定
+    assert verify_signature("sekret", body, None) is False  # 署名なし
+
+
+def test_build_reply_help_on_empty_or_help():
+    cfg = StockConfig()
+    assert build_reply_text("", cfg, FakeFetcher([])) == HELP_TEXT
+    assert build_reply_text("ヘルプ", cfg, FakeFetcher([])) == HELP_TEXT
+
+
+def test_build_reply_watchlist_summary_with_alerts():
+    cfg = StockConfig(watchlist=[
+        WatchItem(symbol="AAPL", name="Apple",
+                  conditions=[AlertCondition(type="price_below", value=200)]),
+    ])
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    out = build_reply_text("株価", cfg, fetcher)
+    assert "Apple" in out
+    assert "⚠️" in out          # 条件成立マーク
+
+
+def test_build_reply_single_symbol():
+    cfg = StockConfig()
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    out = build_reply_text("aapl", cfg, fetcher)   # 小文字でも大文字化して照合
+    assert "Apple" in out
+
+
+def test_build_reply_unknown_symbol():
+    cfg = StockConfig()
+    out = build_reply_text("ZZZZ", cfg, BoomFetcher())
+    assert "取得できませんでした" in out
+
+
+class _RecordingSession:
+    def __init__(self):
+        self.posts = []
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.posts.append({"url": url, "json": json, "headers": headers})
+        return FakeResponse(200)
+
+
+def test_handle_webhook_body_replies_to_text_messages():
+    cfg = StockConfig(watchlist=[WatchItem(symbol="AAPL", name="Apple", conditions=[])])
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+    session = _RecordingSession()
+    body = {"events": [
+        {"type": "message", "replyToken": "RT1", "message": {"type": "text", "text": "株価"}},
+        {"type": "follow", "replyToken": "RT2"},                       # 無視される
+        {"type": "message", "replyToken": "RT3", "message": {"type": "image"}},  # 無視
+    ]}
+    n = handle_webhook_body(body, cfg, "tok", fetcher=fetcher, session=session)
+    assert n == 1
+    assert session.posts[0]["json"]["replyToken"] == "RT1"
+    assert session.posts[0]["headers"]["Authorization"] == "Bearer tok"
+
+
 # ── config 読み込み ──────────────────────────────────────────────────────────
 
 def test_load_stock_config_missing_returns_default(tmp_path):

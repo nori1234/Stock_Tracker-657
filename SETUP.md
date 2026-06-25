@@ -98,6 +98,49 @@ python stock_notify.py                         # 本番送信
 
 ---
 
+## スマホから操作する (LINE Bot・双方向)
+
+LINE で公式アカウントに「**株価**」や「**7203.T**」と送ると、その場で取得して返信する Bot。
+定期通知 (push) とは別に、**好きなタイミングでスマホから確認**できる。
+返信は reply API を使うので**無料・無制限**（push の月200通枠を消費しない）。
+
+> 必要なのは「常時起動の公開 HTTPS が 1 つ」だけ。デプロイ先は何でもよい
+> (Render / Railway / Cloud Run / Fly.io / 自前 VPS 等)。コードはホスト非依存。
+
+### 手順
+
+1. **チャネルシークレット**を控える（LINE Developers → チャネル基本設定 → チャネルシークレット）
+2. デプロイ先で環境変数を設定:
+   - `LINE_CHANNEL_ACCESS_TOKEN`（reply 用）
+   - `LINE_CHANNEL_SECRET`（Webhook 署名検証用）
+3. アプリを起動（例）:
+   ```bash
+   pip install -r requirements-bot.txt
+   uvicorn line_bot:app --host 0.0.0.0 --port 8000
+   ```
+4. LINE Developers → Messaging API → **Webhook URL** に
+   `https://<デプロイ先>/line/webhook` を設定し、**Webhook の利用を ON**
+5. （任意）「応答メッセージ」を OFF にすると Bot の返信だけになる
+6. LINE でアカウントに「株価」と送って返信が来れば成功
+
+### 使えるコマンド
+
+| 送る言葉 | 返信 |
+|---|---|
+| `株価` / `一覧` | ウォッチリスト全銘柄の現在値＋成立条件 |
+| `7203.T` / `AAPL` | その銘柄の現在値 |
+| `ヘルプ` | 使い方 |
+
+> **セキュリティ:** Webhook は `X-Line-Signature` を**チャネルシークレットで検証**し、
+> LINE 以外からのリクエストは 403 で拒否します。
+
+### スマホから手軽に実行する別の方法
+
+Bot を立てなくても、**GitHub モバイルアプリ → Actions → Stock LINE Notify → Run workflow**
+でその場で実行できます（追加実装ゼロ。`dry_run` も選べる）。
+
+---
+
 ## チェックリスト
 
 - [ ] LINE Messaging API チャネル作成・チャネルアクセストークン発行
@@ -106,3 +149,4 @@ python stock_notify.py                         # 本番送信
 - [ ] Secrets に `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_TO` を登録
 - [ ] `Run workflow` の `dry_run` で疎通確認
 - [ ] `dry_run` OFF で実送信を確認
+- [ ] （任意）LINE Bot: `LINE_CHANNEL_SECRET` 設定・デプロイ・Webhook URL 登録
