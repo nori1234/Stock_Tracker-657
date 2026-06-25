@@ -46,14 +46,20 @@ class LineConfig(BaseModel):
     LINE Notify は 2025-03 で終了したため Messaging API の push を使う。
     """
 
-    channel_access_token: str = ""   # 空なら環境変数 LINE_CHANNEL_ACCESS_TOKEN
-    to: str = ""                     # 送信先 userId/groupId。空なら環境変数 LINE_TO
+    channel_access_token: str = ""   # 推奨: 空にして環境変数 LINE_CHANNEL_ACCESS_TOKEN
+    to: str = ""                     # 推奨: 空にして環境変数 LINE_TO
 
+    # 機密は環境変数 (CI の Secrets) を優先する。yaml への直書きは誤コミットの危険があり、
+    # 万一書かれていても環境変数が上書きする。直書きは has_inline_secret() で検知して警告する。
     def resolved_token(self) -> str:
-        return self.channel_access_token or os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+        return os.environ.get("LINE_CHANNEL_ACCESS_TOKEN") or self.channel_access_token
 
     def resolved_to(self) -> str:
-        return self.to or os.environ.get("LINE_TO", "")
+        return os.environ.get("LINE_TO") or self.to
+
+    def has_inline_secret(self) -> bool:
+        """設定ファイルにトークンが直接書かれている (commit 漏洩の危険) なら True。"""
+        return bool(self.channel_access_token.strip())
 
 
 class BoardConfig(BaseModel):

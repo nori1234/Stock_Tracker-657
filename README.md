@@ -26,6 +26,8 @@
 
 クイックスタートと運用手順は **[SETUP.md](SETUP.md)** を参照。
 
+> **セキュリティ:** 認証情報（LINE トークン・`ANTHROPIC_API_KEY`）は**環境変数 / GitHub Secrets** で渡します。`stocks.yaml` への直書きは commit 漏洩の危険があり、起動時に警告が出ます（環境変数が常に優先されます）。CI ワークフローは最小権限（`contents: read`）で動き、サードパーティ Action はコミット SHA でピン留めしています。
+
 ### セットアップ
 
 ```bash

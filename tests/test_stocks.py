@@ -622,3 +622,21 @@ def test_line_config_env_fallback(monkeypatch):
     lc = LineConfig()
     assert lc.resolved_token() == "envtok"
     assert lc.resolved_to() == "envto"
+
+
+def test_line_config_env_overrides_inline(monkeypatch):
+    # 機密は環境変数を優先 (yaml 直書きより env が勝つ)
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "envtok")
+    lc = LineConfig(channel_access_token="filetok")
+    assert lc.resolved_token() == "envtok"
+
+
+def test_line_config_uses_inline_when_no_env(monkeypatch):
+    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+    lc = LineConfig(channel_access_token="filetok")
+    assert lc.resolved_token() == "filetok"
+
+
+def test_line_config_detects_inline_secret():
+    assert LineConfig(channel_access_token="abc").has_inline_secret() is True
+    assert LineConfig().has_inline_secret() is False
