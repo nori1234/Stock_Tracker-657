@@ -26,6 +26,8 @@
 
 クイックスタートと運用手順は **[SETUP.md](SETUP.md)** を参照。
 
+スマホから手軽に使いたい場合は、**LINE Bot（双方向）** を立てると「株価」と送るだけで現在値が返ってきます（`line_bot.py`／署名検証つき／返信は無料の reply API）。立て方は [SETUP.md](SETUP.md#スマホから操作する-line-bot双方向) を参照。Bot を立てない場合でも GitHub モバイルアプリの Actions → Run workflow でその場実行できます。
+
 > **セキュリティ:** 認証情報（LINE トークン・`ANTHROPIC_API_KEY`）は**環境変数 / GitHub Secrets** で渡します。`stocks.yaml` への直書きは commit 漏洩の危険があり、起動時に警告が出ます（環境変数が常に優先されます）。CI ワークフローは最小権限（`contents: read`）で動き、サードパーティ Action はコミット SHA でピン留めしています。依存は上限バージョン付きで固定し、`.github/dependabot.yml` で更新を自動提案します。
 >
 > **耐障害性:** 株価取得（yfinance）と LINE 送信は、レート超過・一時的なサーバー障害・通信例外に対して**指数バックオフでリトライ**します（認証エラー等の 4xx は即失敗）。
