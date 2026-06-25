@@ -79,6 +79,13 @@ def main(config_path, dry_run, discuss, discuss_summary, use_flex, titans_config
         console.print(f"[yellow]ウォッチリストが空です。{config_path} に銘柄を追加してください。[/yellow]")
         sys.exit(1)
 
+    # 機密の誤コミット警告: トークンは環境変数 (CI の Secrets) で渡すこと
+    if config.line.has_inline_secret():
+        console.print(
+            f"[bold red]警告:[/bold red] {config_path} に LINE トークンが直書きされています。"
+            "commit 漏洩の危険があるため、空にして環境変数 LINE_CHANNEL_ACCESS_TOKEN を使ってください。"
+        )
+
     # 取締役会との融合: stocks.yaml の board 設定を既定にし、CLI フラグが上書きする
     board = config.board
     board_enabled = discuss or discuss_summary or board.enabled
