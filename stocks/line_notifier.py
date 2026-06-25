@@ -8,7 +8,11 @@ LINE Notify は 2025-03-31 で終了したため、Messaging API の push エン
 """
 from __future__ import annotations
 
-from typing import Optional
+import time
+from typing import Callable, Optional
+
+# 一時的な失敗としてリトライ対象にするステータス (レート超過 / サーバー側障害)
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 class LineNotifyError(RuntimeError):
@@ -18,7 +22,9 @@ class LineNotifyError(RuntimeError):
 class LineNotifier:
     PUSH_URL = "https://api.line.me/v2/bot/message/push"
 
-    def __init__(self, token: str, to: str, session=None, timeout: int = 10):
+    def __init__(self, token: str, to: str, session=None, timeout: int = 10,
+                 max_retries: int = 3, backoff: float = 2.0,
+                 sleep: Callable[[float], None] = time.sleep):
         if not token:
             raise LineNotifyError(
                 "LINE チャネルアクセストークンが未設定です "
@@ -32,6 +38,9 @@ class LineNotifier:
         self.token = token
         self.to = to
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.backoff = backoff
+        self._sleep = sleep
         self._session = session
 
     def _get_session(self):
@@ -59,19 +68,40 @@ class LineNotifier:
         }])
 
     def _push_messages(self, messages: list) -> None:
+        """指数バックオフでリトライしつつ push する。
+
+        429 / 5xx と通信例外は一時的失敗としてリトライ。それ以外の 4xx
+        (401 認証エラー等) は即座に失敗させる (リトライしても無駄なため)。
+        """
         payload = {"to": self.to, "messages": messages}
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
-        resp = self._get_session().post(
-            self.PUSH_URL, json=payload, headers=headers, timeout=self.timeout
+        last_reason = ""
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = self._get_session().post(
+                    self.PUSH_URL, json=payload, headers=headers, timeout=self.timeout
+                )
+            except Exception as e:  # 通信例外 (タイムアウト等) は一時的失敗とみなす
+                last_reason = f"通信例外: {e}"
+            else:
+                if resp.status_code == 200:
+                    return
+                body = _safe_text(resp)
+                if resp.status_code not in _RETRYABLE_STATUS:
+                    raise LineNotifyError(
+                        f"LINE push に失敗しました (status={resp.status_code}): {body}"
+                    )
+                last_reason = f"status={resp.status_code}: {body}"
+
+            if attempt < self.max_retries:
+                self._sleep(self.backoff * (2 ** attempt))
+
+        raise LineNotifyError(
+            f"LINE push に失敗しました (リトライ {self.max_retries} 回): {last_reason}"
         )
-        if resp.status_code != 200:
-            body = _safe_text(resp)
-            raise LineNotifyError(
-                f"LINE push に失敗しました (status={resp.status_code}): {body}"
-            )
 
 
 def _safe_text(resp) -> Optional[str]:

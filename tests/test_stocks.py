@@ -457,8 +457,46 @@ def test_fetcher_raises_when_no_data(monkeypatch):
     ticker = _FakeTicker(fast=_FakeFastInfo(), info={})
     _install_fake_yfinance(monkeypatch, ticker)
 
+    # max_retries=0 で即失敗 (テストを遅くしない)
     with pytest.raises(StockFetchError):
-        StockFetcher().fetch("BOGUS")
+        StockFetcher(max_retries=0).fetch("BOGUS")
+
+
+def test_fetcher_retries_then_succeeds(monkeypatch):
+    """1 回目は空、2 回目で取得成功 → リトライで救済される。"""
+    from stocks.fetcher import StockFetcher
+    import types
+    import sys as _sys
+
+    empty = _FakeTicker(fast=_FakeFastInfo(), info={})
+    good = _FakeTicker(fast=_FakeFastInfo(last_price=100.0, previous_close=90.0, currency="USD"))
+    seq = [empty, good]
+    fake = types.ModuleType("yfinance")
+    fake.Ticker = lambda symbol: seq.pop(0)
+    monkeypatch.setitem(_sys.modules, "yfinance", fake)
+
+    slept = []
+    q = StockFetcher(max_retries=2, sleep=slept.append).fetch("AAPL")
+    assert q.price == 100.0
+    assert len(slept) == 1          # 1 回だけバックオフした
+
+
+def test_fetcher_retries_on_exception(monkeypatch):
+    from stocks.fetcher import StockFetcher, StockFetchError
+    import types
+    import sys as _sys
+
+    def boom(symbol):
+        raise RuntimeError("network down")
+
+    fake = types.ModuleType("yfinance")
+    fake.Ticker = boom
+    monkeypatch.setitem(_sys.modules, "yfinance", fake)
+
+    slept = []
+    with pytest.raises(StockFetchError):
+        StockFetcher(max_retries=2, sleep=slept.append).fetch("AAPL")
+    assert len(slept) == 2          # max_retries 回バックオフした
 
 
 # ── Flex Message (フェーズC) ─────────────────────────────────────────────────
@@ -565,6 +603,50 @@ def test_line_notifier_push_error_raises():
     notifier = LineNotifier(token="tok", to="U123", session=session)
     with pytest.raises(LineNotifyError):
         notifier.push("hello")
+
+
+class SeqSession:
+    """呼び出しごとに順番にレスポンスを返す (リトライ検証用)。"""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = 0
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.calls += 1
+        return self._responses.pop(0)
+
+
+def test_line_notifier_retries_on_5xx_then_succeeds():
+    session = SeqSession([FakeResponse(503), FakeResponse(200)])
+    slept = []
+    notifier = LineNotifier(token="tok", to="U123", session=session,
+                            max_retries=3, sleep=slept.append)
+    notifier.push("hello")
+    assert session.calls == 2       # 1 回リトライして成功
+    assert len(slept) == 1
+
+
+def test_line_notifier_no_retry_on_4xx():
+    session = SeqSession([FakeResponse(400, "bad request"), FakeResponse(200)])
+    slept = []
+    notifier = LineNotifier(token="tok", to="U123", session=session,
+                            max_retries=3, sleep=slept.append)
+    with pytest.raises(LineNotifyError):
+        notifier.push("hello")
+    assert session.calls == 1       # 4xx は即失敗 (リトライしない)
+    assert slept == []
+
+
+def test_line_notifier_gives_up_after_max_retries():
+    session = SeqSession([FakeResponse(500)] * 5)
+    slept = []
+    notifier = LineNotifier(token="tok", to="U123", session=session,
+                            max_retries=2, sleep=slept.append)
+    with pytest.raises(LineNotifyError):
+        notifier.push("hello")
+    assert session.calls == 3       # 初回 + リトライ 2 回
+    assert len(slept) == 2
 
 
 # ── config 読み込み ──────────────────────────────────────────────────────────

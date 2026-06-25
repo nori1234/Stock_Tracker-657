@@ -1,0 +1,20 @@
+# Dependabot: 依存と GitHub Actions の更新を自動 PR で提案する。
+# https://docs.github.com/code-security/dependabot
+version: 2
+updates:
+  # Python 依存 (requirements.txt / requirements-stock.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  # GitHub Actions (SHA ピン留め済みでもバージョン更新を提案)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
