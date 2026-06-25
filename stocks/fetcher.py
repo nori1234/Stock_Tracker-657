@@ -6,7 +6,8 @@ yfinance はネットワークアクセスを伴うため、テストではこ�
 """
 from __future__ import annotations
 
-from typing import Optional
+import time
+from typing import Callable, Optional
 
 from stocks.models import StockQuote
 
@@ -16,6 +17,14 @@ class StockFetchError(RuntimeError):
 
 
 class StockFetcher:
+    def __init__(self, max_retries: int = 2, backoff: float = 1.0,
+                 sleep: Callable[[float], None] = time.sleep):
+        # Yahoo はレート超過時に空レスポンス/例外を返すことがあるため、
+        # 一時的失敗とみなして指数バックオフで数回リトライする。
+        self.max_retries = max_retries
+        self.backoff = backoff
+        self._sleep = sleep
+
     def fetch(self, symbol: str, name: Optional[str] = None) -> StockQuote:
         try:
             import yfinance as yf
@@ -24,17 +33,31 @@ class StockFetcher:
                 "yfinance がインストールされていません。`pip install yfinance` を実行してください。"
             ) from e
 
-        ticker = yf.Ticker(symbol)
-        extracted = self._extract(ticker, symbol)
-        price = extracted["price"]
-        previous_close = extracted["previous_close"]
+        last_reason = "原因不明"
+        for attempt in range(self.max_retries + 1):
+            try:
+                extracted = self._extract(yf.Ticker(symbol), symbol)
+            except Exception as e:  # 通信例外等は一時的失敗とみなす
+                last_reason = f"例外: {e}"
+                extracted = None
 
-        if price is None or previous_close is None:
-            raise StockFetchError(
-                f"'{symbol}' の株価を取得できませんでした。シンボル表記を確認してください "
-                f"(日本株は '7203.T' のように接尾辞が必要)。"
-            )
+            if extracted is not None:
+                price = extracted["price"]
+                previous_close = extracted["previous_close"]
+                if price is not None and previous_close is not None:
+                    return self._to_quote(symbol, name, extracted, price, previous_close)
+                last_reason = "価格データが空 (レート超過/銘柄誤り の可能性)"
 
+            if attempt < self.max_retries:
+                self._sleep(self.backoff * (2 ** attempt))
+
+        raise StockFetchError(
+            f"'{symbol}' の株価を取得できませんでした ({last_reason})。シンボル表記を確認してください "
+            f"(日本株は '7203.T' のように接尾辞が必要)。"
+        )
+
+    @staticmethod
+    def _to_quote(symbol, name, extracted, price, previous_close) -> StockQuote:
         return StockQuote(
             symbol=symbol,
             name=name or extracted["name"] or symbol,

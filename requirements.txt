@@ -2,18 +2,18 @@
 # 引き込み「Invalid response from LLM call」等の挙動差が出るため == で固定する）
 crewai==1.14.6
 crewai-tools==1.14.6
-pyyaml>=6.0
-pydantic>=2.0
-python-dotenv>=1.2.2
-rich>=13.0
-click>=8.1
-ollama>=0.4
-qdrant-client>=1.12
-rank-bm25>=0.2.2
-fastapi>=0.110
-uvicorn[standard]>=0.27
+pyyaml>=6.0,<7
+pydantic>=2.0,<3
+python-dotenv>=1.2.2,<2
+rich>=13.0,<15
+click>=8.1,<9
+ollama>=0.4,<1
+qdrant-client>=1.12,<2
+rank-bm25>=0.2.2,<1
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
 # letta-client>=0.1   # memory.provider: letta を使う場合のみ必要
 
 # --- 株価通知 (stocks/) ---
-yfinance>=0.2.40       # 株価取得 (日本株 "7203.T" / 米国株 "AAPL")
-requests>=2.31         # LINE Messaging API への push
+yfinance>=0.2.40,<1    # 株価取得 (日本株 "7203.T" / 米国株 "AAPL")
+requests>=2.31,<3      # LINE Messaging API への push
