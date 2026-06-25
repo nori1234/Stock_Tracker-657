@@ -1,0 +1,23 @@
+# Render Blueprint — LINE Bot (line_bot.py) を無料でデプロイする。
+# https://render.com/docs/blueprint-spec
+#
+# 使い方: Render で "New +" → "Blueprint" → このリポジトリを選択。
+# 機密 (sync: false の env) は Render のダッシュボードで入力する。
+services:
+  - type: web
+    name: stock-line-bot
+    runtime: python
+    plan: free                     # 無料プラン (非アクティブ時はスリープ。下記の注意参照)
+    region: singapore              # 日本から近いリージョン
+    buildCommand: pip install -r requirements-bot.txt
+    startCommand: uvicorn line_bot:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true               # main への push で自動再デプロイ
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      # 機密は Git に載せない。Render ダッシュボードで設定する。
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
