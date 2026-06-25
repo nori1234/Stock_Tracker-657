@@ -106,6 +106,8 @@ LINE で公式アカウントに「**株価**」や「**7203.T**」と送ると�
 
 > 必要なのは「常時起動の公開 HTTPS が 1 つ」だけ。デプロイ先は何でもよい
 > (Render / Railway / Cloud Run / Fly.io / 自前 VPS 等)。コードはホスト非依存。
+>
+> **Render に無料でデプロイする具体手順は [DEPLOY.md](DEPLOY.md) を参照**（Blueprint 一発・所要 10〜15 分）。
 
 ### 手順
 
