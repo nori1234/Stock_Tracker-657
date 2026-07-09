@@ -136,6 +136,24 @@ def test_run_once_notifies_on_hit():
     assert "Apple" in notifier.sent[0]
 
 
+def test_run_once_skips_send_when_no_creds():
+    # 認証情報が無く notifier も渡されていない → 例外にせず送信スキップ
+    cfg = StockConfig(watchlist=[
+        WatchItem(symbol="AAPL", conditions=[AlertCondition(type="price_below", value=200)]),
+    ])
+    fetcher = FakeFetcher([StockQuote("AAPL", "Apple", 150.0, 160.0, "USD")])
+
+    # LINE_* 環境変数が無いことを保証しつつ実行 (config も空)
+    import os as _os
+    for k in ("LINE_CHANNEL_ACCESS_TOKEN", "LINE_TO"):
+        _os.environ.pop(k, None)
+
+    result = run_once(cfg, fetcher=fetcher)   # notifier 未指定 → 実物構築を試みる
+
+    assert result.skipped_no_creds is True
+    assert result.notified is False
+
+
 def test_run_once_no_hit_no_notify():
     cfg = StockConfig(watchlist=[
         WatchItem(symbol="AAPL", conditions=[AlertCondition(type="price_above", value=999)]),

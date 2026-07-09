@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from stocks import AlertStateStore, BoardStockAnalyst, load_stock_config, run_once
+from stocks.line_notifier import LineNotifyError
 
 console = Console()
 
@@ -101,21 +102,33 @@ def main(config_path, dry_run, discuss, discuss_summary, use_flex, titans_config
 
     state_store = None if no_dedup else AlertStateStore(state_file)
 
-    result = run_once(
-        config,
-        analyst=analyst,
-        state_store=state_store,
-        cooldown_minutes=cooldown_minutes,
-        notify_errors=notify_errors,
-        use_flex=use_flex,
-        dry_run=dry_run,
-    )
+    # LINE の送信失敗 (認証エラー/API障害) は運用上の問題であり、cron の失敗
+    # メールを連投させないため、致命的エラーにせずログして正常終了する。
+    try:
+        result = run_once(
+            config,
+            analyst=analyst,
+            state_store=state_store,
+            cooldown_minutes=cooldown_minutes,
+            notify_errors=notify_errors,
+            use_flex=use_flex,
+            dry_run=dry_run,
+        )
+    except LineNotifyError as e:
+        console.print(f"[red]LINE 送信エラー:[/red] {e}")
+        sys.exit(0)
 
     # 取得状況のサマリ
     for quote in result.quotes:
         console.print(quote.format_line())
     for err in result.errors:
         console.print(f"[red]取得失敗:[/red] {err}")
+
+    if result.skipped_no_creds:
+        console.print(
+            "[yellow]LINE 認証情報 (LINE_CHANNEL_ACCESS_TOKEN / LINE_TO) が未設定のため"
+            "送信をスキップしました。エラーではありません。[/yellow]"
+        )
 
     if result.suppressed:
         console.print(f"[dim]重複抑制: 成立中の {result.suppressed} 件は再通知をスキップ。[/dim]")
