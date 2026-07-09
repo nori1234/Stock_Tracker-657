@@ -28,6 +28,7 @@ class RunResult:
     suppressed: int = 0                                        # 重複として抑制した件数
     notified: bool = False
     error_notified: bool = False                               # 取得失敗を通知したか
+    skipped_no_creds: bool = False                             # 認証情報未設定で送信スキップ
     message: str = ""
 
 
@@ -153,10 +154,16 @@ def run_once(
     if not notify_alert and not notify_failure:
         return result
 
-    notifier = notifier or LineNotifier(
-        token=config.line.resolved_token(),
-        to=config.line.resolved_to(),
-    )
+    # 認証情報が無ければ送信をスキップ (クラッシュさせない)。
+    # 未設定のまま cron 実行しても失敗せず正常終了させ、失敗通知メールを防ぐ。
+    if notifier is None:
+        token = config.line.resolved_token()
+        to = config.line.resolved_to()
+        if not token or not to:
+            result.skipped_no_creds = True
+            return result
+        notifier = LineNotifier(token=token, to=to)
+
     if notify_alert:
         if use_flex:
             from stocks import flex
