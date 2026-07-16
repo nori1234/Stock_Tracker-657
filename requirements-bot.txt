@@ -1,5 +1,5 @@
 # LINE Bot Webhook サーバー (line_bot.py) の依存。
 # 株通知の最小依存 + FastAPI/uvicorn。
 -r requirements-stock.txt
-fastapi>=0.110,<1
-uvicorn[standard]>=0.27,<1
+fastapi>=0.139.1,<1
+uvicorn[standard]>=0.51.0,<1
