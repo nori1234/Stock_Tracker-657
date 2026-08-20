@@ -1,10 +1,10 @@
 # 株価通知 (stock_notify.py) を動かす最小依存。
 # GitHub Actions など、AI 取締役会 (--discuss / crewai) を使わない実行用。
 # 取締役会まで動かす場合は requirements.txt を使う。
-pyyaml>=6.0,<7
-pydantic>=2.0,<3
-python-dotenv>=1.2.2,<2
-rich>=13.0,<15
-click>=8.1,<9
-yfinance>=0.2.40,<1
-requests>=2.31,<3
+pyyaml>=6.0.3,<7
+pydantic>=2.13.4,<3
+python-dotenv>=1.2.3,<2
+rich>=15.0.0,<16
+click>=8.4.2,<9
+yfinance>=1.6.0,<2
+requests>=2.34.2,<3
